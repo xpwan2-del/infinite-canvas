@@ -10,7 +10,7 @@ import { useUserStore } from "@/stores/use-user-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
-type VideoResponse = { id: string; status?: string; error?: { message?: string } };
+type VideoResponse = { id: string; status?: string; error?: { message?: string }; video?: { url?: string; duration?: number }; url?: string };
 type ApiVideoResponse = VideoResponse | { code?: number; data?: VideoResponse | null; msg?: string };
 type SeedanceTask = {
     id: string;
@@ -104,7 +104,12 @@ async function createOpenAIVideoTask(config: AiConfig, model: string, prompt: st
 async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask): Promise<VideoGenerationTaskState> {
     try {
         const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), params: config.channelMode === "remote" ? { model: task.model } : undefined })).data);
-        if (video.status === "completed") {
+        if (isCompletedVideoStatus(video.status)) {
+            const videoUrl = video.video?.url || video.url;
+            if (videoUrl) {
+                refreshRemoteUser(config);
+                return { status: "completed", result: { url: videoUrl, mimeType: "video/mp4" } };
+            }
             const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), params: config.channelMode === "remote" ? { model: task.model } : undefined, responseType: "blob" });
             const mediaUrl = String(content.headers["x-canvas-media-url"] || "");
             if (mediaUrl) return { status: "completed", result: { url: mediaUrl, mimeType: String(content.headers["content-type"] || "video/mp4") } };
@@ -328,6 +333,10 @@ async function assertVideoBlob(blob: Blob) {
 
 function isPublicMediaUrl(value: string) {
     return /^https?:\/\//i.test(value || "");
+}
+
+function isCompletedVideoStatus(status?: string) {
+    return ["completed", "succeeded", "done"].includes(String(status || "").toLowerCase());
 }
 
 function delay(ms: number) {
