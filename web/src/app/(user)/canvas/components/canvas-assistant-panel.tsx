@@ -393,6 +393,7 @@ function AssistantComposer({
     modelCosts?: { model: string; credits: number }[];
 }) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
+    const hideLocalCredits = useConfigStore((state) => state.publicSettings?.canvas?.disableLocalCredits);
     const activeModel = mode === "image" ? config.imageModel || config.model : config.textModel || config.model;
     const credits = requestCreditCost({ channelMode: config.channelMode, modelCosts, model: activeModel, count: mode === "image" ? config.count : 1 });
 
@@ -446,8 +447,12 @@ function AssistantComposer({
                     >
                         <span className="flex items-center gap-1.5">
                             <span className="inline-flex items-center gap-1 text-xs font-medium tabular-nums">
-                                <CreditSymbol />
-                                {credits.toLocaleString()}
+                                {!hideLocalCredits ? (
+                                    <>
+                                        <CreditSymbol />
+                                        {credits.toLocaleString()}
+                                    </>
+                                ) : null}
                             </span>
                             {isRunning ? <LoaderCircle className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
                         </span>

@@ -43,6 +43,7 @@ type PublicModelChannelSetting struct {
 type PublicSetting struct {
 	ModelChannel PublicModelChannelSetting `json:"modelChannel"`
 	Auth         PublicAuthSetting         `json:"auth"`
+	Canvas       PublicCanvasSetting       `json:"canvas"`
 }
 
 type PublicAuthSetting struct {
@@ -52,6 +53,11 @@ type PublicAuthSetting struct {
 
 type PublicLinuxDoAuthSetting struct {
 	Enabled bool `json:"enabled"`
+}
+
+type PublicCanvasSetting struct {
+	DisableLocalCredits bool `json:"disableLocalCredits"`
+	ForceTopAIGateway   bool `json:"forceTopAIGateway"`
 }
 
 // PrivateSetting 私有配置。

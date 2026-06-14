@@ -49,7 +49,7 @@ export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
 export type ModelCapability = "image" | "video" | "text" | "audio";
 
 export const defaultConfig: AiConfig = {
-    channelMode: "local",
+    channelMode: "remote",
     baseUrl: "https://api.openai.com",
     apiKey: "",
     model: "gpt-image-2",
@@ -102,8 +102,10 @@ type ConfigStore = {
     clearPromptContinue: () => void;
 };
 
-function resolveEffectiveConfig(config: AiConfig, modelChannel: AdminPublicSettings["modelChannel"] | null) {
-    const channelMode = modelChannel?.allowCustomChannel ? config.channelMode : "remote";
+function resolveEffectiveConfig(config: AiConfig, publicSettings: AdminPublicSettings | null) {
+    const modelChannel = publicSettings?.modelChannel || null;
+    const forceRemote = publicSettings?.canvas?.forceTopAIGateway || !modelChannel?.allowCustomChannel;
+    const channelMode = forceRemote ? "remote" : config.channelMode;
     if (channelMode === "local" || !modelChannel) return { ...config, channelMode };
     const models = modelChannel.availableModels;
     const textModels = filterModelsByCapability(models, "text");
@@ -265,8 +267,8 @@ function normalizeModelList(models: string[]) {
 
 export function useEffectiveConfig() {
     const config = useConfigStore((state) => state.config);
-    const modelChannel = useConfigStore((state) => state.publicSettings?.modelChannel || null);
-    return useMemo(() => resolveEffectiveConfig(config, modelChannel), [config, modelChannel]);
+    const publicSettings = useConfigStore((state) => state.publicSettings);
+    return useMemo(() => resolveEffectiveConfig(config, publicSettings), [config, publicSettings]);
 }
 
 export function buildApiUrl(baseUrl: string, path: string) {

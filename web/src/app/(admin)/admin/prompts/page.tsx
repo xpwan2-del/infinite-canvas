@@ -6,6 +6,7 @@ import { Button, Card, Col, Flex, Form, Image, Input, Modal, Row, Select, Space,
 import { useEffect, useState } from "react";
 
 import { useCopyText } from "@/hooks/use-copy-text";
+import { withBasePath } from "@/lib/base-path";
 import type { Prompt } from "@/services/api/prompts";
 import { useAdminPrompts } from "./use-admin-prompts";
 
@@ -43,6 +44,7 @@ export default function AdminPromptsPage() {
     const [selectedPromptIds, setSelectedPromptIds] = useState<string[]>([]);
     const [isBatchDeleteOpen, setIsBatchDeleteOpen] = useState(false);
     const [isSyncOpen, setIsSyncOpen] = useState(false);
+    const logoSrc = withBasePath("/logo.svg");
     const defaultCategory = categories[0]?.category || "";
     const categoryName = (category: string) => categories.find((item) => item.category === category)?.name || category;
     const categoryOptions = [{ label: "全部分类", value: "" }, ...categories.map((item) => ({ label: item.name, value: item.category }))];
@@ -79,7 +81,7 @@ export default function AdminPromptsPage() {
             title: "封面",
             dataIndex: "coverUrl",
             width: 88,
-            render: (_, item) => <Image src={item.coverUrl || "/logo.svg"} alt={item.title} width={56} height={42} style={{ objectFit: "cover", borderRadius: 6 }} preview={{ mask: "放大" }} fallback="/logo.svg" />,
+            render: (_, item) => <Image src={item.coverUrl || logoSrc} alt={item.title} width={56} height={42} style={{ objectFit: "cover", borderRadius: 6 }} preview={{ mask: "放大" }} fallback={logoSrc} />,
         },
         {
             title: "标题",
@@ -235,7 +237,7 @@ export default function AdminPromptsPage() {
                 {detailPrompt ? (
                     <Flex vertical gap={14}>
                         <Flex gap={14} align="start">
-                            <Image src={detailPrompt.coverUrl || "/logo.svg"} alt={detailPrompt.title} width={116} height={84} style={{ objectFit: "cover", borderRadius: 8 }} preview={{ mask: "放大" }} fallback="/logo.svg" />
+                            <Image src={detailPrompt.coverUrl || logoSrc} alt={detailPrompt.title} width={116} height={84} style={{ objectFit: "cover", borderRadius: 8 }} preview={{ mask: "放大" }} fallback={logoSrc} />
                             <Flex vertical gap={8} style={{ minWidth: 0 }}>
                                 <Typography.Title level={5} style={{ margin: 0 }}>
                                     {detailPrompt.title}

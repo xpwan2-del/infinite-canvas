@@ -5,6 +5,7 @@ import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { App } from "antd";
 
+import { APP_BASE_PATH } from "@/lib/base-path";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 
@@ -17,14 +18,18 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     const publicSettings = useConfigStore((state) => state.publicSettings);
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
-    const isLoginPage = pathname === "/login" || pathname === "/admin/login";
+    const routePath = APP_BASE_PATH && pathname.startsWith(APP_BASE_PATH) ? pathname.slice(APP_BASE_PATH.length) || "/" : pathname;
+    const isLoginPage = routePath === "/login" || routePath === "/admin/login";
 
     useEffect(() => {
         void loadPublicSettings();
     }, [loadPublicSettings]);
 
     useEffect(() => {
-        if (!isLoginPage) void hydrateUser();
+        if (isLoginPage) return;
+        void hydrateUser().then(() => {
+            if (!useUserStore.getState().user) redirectToTopAILogin();
+        });
     }, [hydrateUser, isLoginPage]);
 
     useEffect(() => {
@@ -52,4 +57,12 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     }, [message, openConfigDialog, publicSettings, updateConfig]);
 
     return <>{children}</>;
+}
+
+function redirectToTopAILogin() {
+    const configuredPath = process.env.NEXT_PUBLIC_TOP_AI_LOGIN_PATH || "/login";
+    const redirect = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const target = new URL(configuredPath, window.location.origin);
+    target.searchParams.set("redirect", redirect);
+    window.location.href = target.origin === window.location.origin ? `${target.pathname}${target.search}${target.hash}` : target.toString();
 }

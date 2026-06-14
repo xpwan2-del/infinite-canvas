@@ -5,6 +5,11 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 # 待测试
 
+- TOP-AI 集成模式新增 `CANVAS_DISABLE_LOCAL_AUTH`、`CANVAS_DISABLE_LOCAL_CREDITS` 和 `CANVAS_FORCE_TOP_AI_GATEWAY`；开启后公开注册/登录会提示使用 TOP-AI，前台不展示画布本地 credits，AI 请求由画布后端使用服务端 `TOP_AI_GATEWAY_API_KEY` 转发到 TOP-AI Gateway，并携带 canvas 来源和 TOP-AI 用户标记。需要在同域 `/apps/canvas`、TOP-AI 登录态、真实网关 API Key 和测试余额下验证图片、文本、音频、视频请求。
+- 公开设置会优先从 TOP-AI 模型目录读取可用模型；配置 `TOP_AI_MODEL_CATALOG_URL` 或 `TOP_AI_INTERNAL_BASE_URL` 后，需要验证前台模型下拉只出现 TOP-AI 已售卖模型，目录不可用时页面不会直接崩溃。
+- AI 代理新增请求体大小限制和用户维度限流；需要验证超大请求返回明确提示，正常图片/视频参考素材 URL 请求不受影响。
+- `webdav-proxy` 新增画布登录态校验、内网/metadata 地址阻断、host allowlist 和请求体大小限制；需要验证已登录用户对可信 WebDAV 可同步，未登录、localhost、私网 IP、云 metadata 地址和超大请求都会被拒绝。
+- 参考素材上传支持通过 `MEDIA_STORAGE_DRIVER` 在本地存储和 R2/S3 对象存储之间切换；生产配置 `MEDIA_STORAGE_DRIVER=r2`、`R2_PUBLIC_BASE_URL` 和 R2 服务端凭证后，`/api/v1/media/references` 应返回 `temp/reference/` 下的公网 URL，需要验证图片、参考视频和参考音频都能被上游视频模型拉取。
 - 视频创作台创建视频任务成功后会立即写入左侧生成记录，状态显示为“生成中”；刷新页面后会读取本地任务 ID 继续轮询，任务成功或失败后更新同一条记录，需要验证 OpenAI 视频接口和 Seedance 任务接口的刷新恢复。
 - 修复画布文字节点编辑时双击进入编辑、全选文本出现重影和错位的问题；文字节点内容编辑框改为使用原生 textarea 文本渲染，仍保留 `@` 资源候选插入，需要验证编辑态选区、展示态文字换行和右上角“生图”按钮避让都正常。
 - 配置弹窗新增 WebDAV 同步配置，可填写 WebDAV 地址、远程目录、用户名和密码/应用密码，并选择“前端直连”或“Next.js 转发”；远端会按 `canvas/`、`assets/`、`image-workbench/`、`video-workbench/` 四个业务目录分别写入 `manifest.json` 清单和 `files/` 媒体目录，会合并画布项目、我的素材、生图/视频生成记录和引用到的本地媒体文件，四个业务分区会并发同步，并在同步中显示读取远端、检查媒体、上传新增媒体、上传清单等阶段和文件计数进度条；WebDAV 请求会做超时提示，目录已存在但 `MKCOL` 返回 `423 Locked` 时会复查目录存在后继续同步，需要在支持 CORS 的 NAS/WebDAV 服务和不支持 CORS 的 Koofr 转发模式下验证首次上传、第二台设备拉取合并、再次同步和认证失败提示。

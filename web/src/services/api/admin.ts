@@ -191,6 +191,10 @@ export type AdminPublicSettings = {
             enabled: boolean;
         };
     };
+    canvas: {
+        disableLocalCredits: boolean;
+        forceTopAIGateway: boolean;
+    };
 };
 
 export type AdminPrivateSettings = {

@@ -9,6 +9,7 @@ import { EditorView } from "@uiw/react-codemirror";
 
 import { fetchAdminSettings, fetchChannelModels, saveAdminSettings, testChannelModel, type AdminModelChannel, type AdminModelCost, type AdminSettings } from "@/services/api/admin";
 import { useUserStore } from "@/stores/use-user-store";
+import { withBasePath } from "@/lib/base-path";
 
 const CodeMirror = dynamic(() => import("@uiw/react-codemirror"), { ssr: false });
 const jsonEditorTheme = EditorView.theme({
@@ -37,6 +38,7 @@ const emptySettings: AdminSettings = {
             allowCustomChannel: true,
         },
         auth: { allowRegister: true, linuxDo: { enabled: false } },
+        canvas: { disableLocalCredits: false, forceTopAIGateway: false },
     },
     private: { channels: [], promptSync: { enabled: true, cron: "*/5 * * * *" }, auth: { linuxDo: { clientId: "", clientSecret: "" } } },
 };
@@ -503,7 +505,7 @@ export default function AdminSettingsPage() {
                                     size="small"
                                     title={
                                         <Space>
-                                            <img src="/icons/linuxdo.svg" alt="" width={18} height={18} />
+                                            <img src={withBasePath("/icons/linuxdo.svg")} alt="" width={18} height={18} />
                                             Linux.do 登录
                                         </Space>
                                     }

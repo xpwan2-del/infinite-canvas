@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/basketikun/infinite-canvas/config"
 	"github.com/basketikun/infinite-canvas/model"
 	"github.com/basketikun/infinite-canvas/repository"
 )
@@ -20,7 +22,8 @@ var adminModelHTTPClient = &http.Client{Timeout: 30 * time.Second}
 
 func PublicSettings() (model.PublicSetting, error) {
 	settings, err := repository.GetSettings()
-	return normalizeSettings(settings).Public, err
+	public := applyCanvasIntegrationPublicSetting(normalizeSettings(settings).Public)
+	return public, err
 }
 
 func AdminSettings() (model.Settings, error) {
@@ -104,6 +107,102 @@ func normalizePublicSettingWithChannels(setting model.PublicSetting, channels []
 	setting.ModelChannel.DefaultVideoModel = repairDefaultModel(setting.ModelChannel.DefaultVideoModel, setting.ModelChannel.AvailableModels, isVideoModelName)
 	setting.ModelChannel.DefaultModel = repairDefaultModel(setting.ModelChannel.DefaultModel, setting.ModelChannel.AvailableModels, isTextModelName)
 	return setting
+}
+
+func applyCanvasIntegrationPublicSetting(setting model.PublicSetting) model.PublicSetting {
+	setting.Canvas.DisableLocalCredits = config.Cfg.CanvasDisableLocalCredits
+	setting.Canvas.ForceTopAIGateway = config.Cfg.CanvasForceTopAIGateway
+	if config.Cfg.CanvasDisableLocalAuth {
+		disabled := false
+		setting.Auth.AllowRegister = &disabled
+	}
+	if config.Cfg.CanvasForceTopAIGateway {
+		disabled := false
+		setting.ModelChannel.AllowCustomChannel = &disabled
+	}
+
+	catalogModels, err := fetchTopAIModelCatalogModels()
+	if err != nil {
+		log.Printf("fetch TOP-AI model catalog failed: %v", err)
+	}
+	if len(catalogModels) > 0 {
+		setting.ModelChannel.AvailableModels = catalogModels
+		setting.ModelChannel.DefaultTextModel = repairDefaultModel(setting.ModelChannel.DefaultTextModel, catalogModels, isTextModelName)
+		setting.ModelChannel.DefaultImageModel = repairDefaultModel(setting.ModelChannel.DefaultImageModel, catalogModels, isImageModelName)
+		setting.ModelChannel.DefaultVideoModel = repairDefaultModel(setting.ModelChannel.DefaultVideoModel, catalogModels, isVideoModelName)
+		setting.ModelChannel.DefaultModel = repairDefaultModel(setting.ModelChannel.DefaultModel, catalogModels, isTextModelName)
+	}
+	if config.Cfg.CanvasDisableLocalCredits {
+		setting.ModelChannel.ModelCosts = []model.ModelCost{}
+	}
+	return setting
+}
+
+type topAIModelCatalogEnvelope struct {
+	Code    int             `json:"code"`
+	Success *bool           `json:"success"`
+	Data    json.RawMessage `json:"data"`
+	Message string          `json:"message"`
+	Msg     string          `json:"msg"`
+}
+
+type topAIModelCatalogItem struct {
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
+func fetchTopAIModelCatalogModels() ([]string, error) {
+	endpoint := topAIModelCatalogEndpoint()
+	if endpoint == "" {
+		return nil, nil
+	}
+	request, err := http.NewRequest(http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("X-Canvas-Source", "infinite-canvas")
+	response, err := topAIHTTPClient.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("TOP-AI model catalog status %d", response.StatusCode)
+	}
+	var envelope topAIModelCatalogEnvelope
+	if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
+		return nil, err
+	}
+	if envelope.Success != nil && !*envelope.Success {
+		return nil, safeMessageError{message: firstNonEmpty(envelope.Message, envelope.Msg, "TOP-AI 模型目录不可用")}
+	}
+	if envelope.Success == nil && envelope.Code != 0 {
+		return nil, safeMessageError{message: firstNonEmpty(envelope.Message, envelope.Msg, "TOP-AI 模型目录不可用")}
+	}
+	var items []topAIModelCatalogItem
+	if err := json.Unmarshal(envelope.Data, &items); err != nil {
+		return nil, err
+	}
+	models := make([]string, 0, len(items))
+	for _, item := range items {
+		if strings.TrimSpace(item.Status) != "" && !strings.EqualFold(item.Status, "available") {
+			continue
+		}
+		models = append(models, item.Name)
+	}
+	return uniqueModelNames(models), nil
+}
+
+func topAIModelCatalogEndpoint() string {
+	if endpoint := strings.TrimSpace(config.Cfg.TopAIModelCatalogURL); endpoint != "" {
+		return endpoint
+	}
+	base := firstNonEmpty(config.Cfg.TopAIInternalBaseURL, config.Cfg.TopAIPublicBaseURL)
+	if strings.TrimSpace(base) == "" {
+		return ""
+	}
+	return strings.TrimRight(base, "/") + "/api/v1/public/models/catalog"
 }
 
 func ModelCost(modelName string) (int, error) {

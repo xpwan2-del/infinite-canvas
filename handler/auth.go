@@ -6,6 +6,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/basketikun/infinite-canvas/config"
 	"github.com/basketikun/infinite-canvas/model"
 	"github.com/basketikun/infinite-canvas/service"
 )
@@ -35,6 +36,10 @@ type adjustUserCreditsRequest struct {
 }
 
 func Register(w http.ResponseWriter, r *http.Request) {
+	if config.Cfg.CanvasDisableLocalAuth {
+		Fail(w, "请使用 TOP-AI 账号登录")
+		return
+	}
 	var request registerRequest
 	_ = json.NewDecoder(r.Body).Decode(&request)
 	session, err := service.Register(request.Username, request.Password)
@@ -46,9 +51,22 @@ func Register(w http.ResponseWriter, r *http.Request) {
 }
 
 func Login(w http.ResponseWriter, r *http.Request) {
+	if config.Cfg.CanvasDisableLocalAuth {
+		Fail(w, "请使用 TOP-AI 账号登录")
+		return
+	}
 	var request loginRequest
 	_ = json.NewDecoder(r.Body).Decode(&request)
 	session, err := service.Login(request.Username, request.Password)
+	if err != nil {
+		FailError(w, err)
+		return
+	}
+	OK(w, session)
+}
+
+func TopAISession(w http.ResponseWriter, r *http.Request) {
+	session, err := service.LoginWithTopAI(r)
 	if err != nil {
 		FailError(w, err)
 		return

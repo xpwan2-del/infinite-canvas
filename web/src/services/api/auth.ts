@@ -1,6 +1,7 @@
 import { apiGet, apiPost } from "@/services/api/request";
 
 export const AUTH_TOKEN_KEY = "infinite-canvas-auth-token-v1";
+export const TOP_AI_AUTH_TOKEN_KEY = "auth_token";
 
 export type UserRole = "guest" | "user" | "admin";
 
@@ -35,4 +36,13 @@ export async function register(payload: AuthPayload) {
 
 export async function fetchCurrentUser(token?: string) {
     return apiGet<AuthUser>("/api/auth/me", undefined, token);
+}
+
+export async function loginWithTopAI(token: string) {
+    return apiPost<AuthSession>("/api/auth/top-ai/session", {}, token);
+}
+
+export function getTopAIAuthToken() {
+    if (typeof window === "undefined") return "";
+    return window.localStorage.getItem(TOP_AI_AUTH_TOKEN_KEY) || "";
 }

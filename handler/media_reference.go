@@ -1,15 +1,12 @@
 package handler
 
 import (
-	"fmt"
-	"io"
+	"errors"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/basketikun/infinite-canvas/config"
-	"github.com/google/uuid"
+	"github.com/basketikun/infinite-canvas/service"
 )
 
 const (
@@ -23,19 +20,7 @@ const (
 	referenceMediaAllowedText = referenceImageAllowedText + "、" + referenceVideoAllowedText + "或" + referenceAudioAllowedText
 )
 
-type referenceMediaUploadResult struct {
-	ID       string `json:"id"`
-	URL      string `json:"url"`
-	MimeType string `json:"mimeType"`
-	Bytes    int64  `json:"bytes"`
-}
-
 func UploadReferenceMedia(w http.ResponseWriter, r *http.Request) {
-	publicBaseURL := strings.TrimRight(strings.TrimSpace(config.Cfg.PublicBaseURL), "/")
-	if publicBaseURL == "" {
-		Fail(w, "未配置 PUBLIC_BASE_URL，无法把本地参考素材提供给火山方舟访问")
-		return
-	}
 	r.Body = http.MaxBytesReader(w, r.Body, referenceMediaMaxBytes+1)
 	if err := r.ParseMultipartForm(referenceMediaMaxBytes); err != nil {
 		Fail(w, "参考素材过大或上传格式不正确")
@@ -56,49 +41,37 @@ func UploadReferenceMedia(w http.ResponseWriter, r *http.Request) {
 		Fail(w, "参考素材格式不支持，请使用 "+referenceMediaAllowedText)
 		return
 	}
-	if err := os.MkdirAll(referenceMediaDir(), 0o755); err != nil {
-		Fail(w, "参考素材保存失败")
-		return
-	}
-	id := uuid.NewString() + ext
-	targetPath := filepath.Join(referenceMediaDir(), id)
-	target, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
-	if err != nil {
-		Fail(w, "参考素材保存失败")
-		return
-	}
-	bytes, copyErr := io.Copy(target, file)
-	closeErr := target.Close()
-	if copyErr != nil || closeErr != nil {
-		_ = os.Remove(targetPath)
-		Fail(w, "参考素材保存失败")
-		return
-	}
-	if bytes <= 0 {
-		_ = os.Remove(targetPath)
-		Fail(w, "参考素材为空")
-		return
-	}
-	if limit := referenceMediaTypeMaxBytes(mimeType); limit > 0 && bytes > limit {
-		_ = os.Remove(targetPath)
-		Fail(w, referenceMediaSizeMessage(mimeType))
-		return
-	}
-	OK(w, referenceMediaUploadResult{
-		ID:       id,
-		URL:      fmt.Sprintf("%s/api/media/references/%s", publicBaseURL, id),
+	result, err := service.SaveReferenceMedia(r.Context(), service.ReferenceMediaUploadInput{
+		Reader:   file,
 		MimeType: mimeType,
-		Bytes:    bytes,
+		Ext:      ext,
+		MaxBytes: referenceMediaTypeMaxBytes(mimeType),
 	})
+	if err != nil {
+		Fail(w, referenceMediaSaveMessage(err, mimeType))
+		return
+	}
+	OK(w, result)
+}
+
+func referenceMediaSaveMessage(err error, mimeType string) string {
+	if errors.Is(err, service.ErrReferenceMediaEmpty) {
+		return "参考素材为空"
+	}
+	if errors.Is(err, service.ErrReferenceMediaTooLarge) {
+		return referenceMediaSizeMessage(mimeType)
+	}
+	if errors.Is(err, service.ErrReferenceMediaStorageConfig) {
+		return "参考素材存储未配置，请检查 PUBLIC_BASE_URL 或 R2 服务端环境变量"
+	}
+	if errors.Is(err, service.ErrReferenceMediaUnsupportedDriver) {
+		return "参考素材存储驱动不支持"
+	}
+	return "参考素材保存失败"
 }
 
 func ReferenceMedia(w http.ResponseWriter, r *http.Request, id string) {
-	if id == "" || id != filepath.Base(id) || strings.Contains(id, "..") {
-		http.NotFound(w, r)
-		return
-	}
-	path := filepath.Join(referenceMediaDir(), id)
-	file, err := os.Open(path)
+	file, err := service.OpenLocalReferenceMedia(id)
 	if err != nil {
 		http.NotFound(w, r)
 		return
@@ -114,28 +87,6 @@ func ReferenceMedia(w http.ResponseWriter, r *http.Request, id string) {
 	}
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	http.ServeContent(w, r, id, info.ModTime(), file)
-}
-
-func referenceMediaDir() string {
-	return filepath.Join(referenceDataDir(), "reference-media")
-}
-
-func referenceDataDir() string {
-	driver := strings.ToLower(strings.TrimSpace(config.Cfg.StorageDriver))
-	dsn := strings.TrimSpace(config.Cfg.DatabaseDSN)
-	if (driver == "" || driver == "sqlite") && dsn != "" && dsn != ":memory:" && !strings.HasPrefix(dsn, "file:") {
-		pathPart := dsn
-		if index := strings.Index(dsn, "?"); index >= 0 {
-			pathPart = dsn[:index]
-		}
-		if filepath.IsAbs(pathPart) {
-			return filepath.Dir(pathPart)
-		}
-	}
-	if _, err := os.Stat("/app/data"); err == nil {
-		return "/app/data"
-	}
-	return "data"
 }
 
 func normalizeReferenceMediaType(contentType string, ext string) (string, string, bool) {

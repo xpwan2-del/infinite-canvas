@@ -26,6 +26,7 @@ type CanvasConfigNodePanelProps = {
 export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigChange, onGenerate, onComposerToggle }: CanvasConfigNodePanelProps) {
     const globalConfig = useEffectiveConfig();
     const modelCosts = useConfigStore((state) => state.publicSettings?.modelChannel.modelCosts);
+    const hideLocalCredits = useConfigStore((state) => state.publicSettings?.canvas?.disableLocalCredits);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
     const mode = node.metadata?.generationMode || "image";
@@ -120,8 +121,12 @@ export function CanvasConfigNodePanel({ node, isRunning, inputSummary, onConfigC
             >
                 <span className="inline-flex items-center gap-1.5">
                     <span className="inline-flex items-center gap-1">
-                        <CreditSymbol />
-                        {credits.toLocaleString()}
+                        {!hideLocalCredits ? (
+                            <>
+                                <CreditSymbol />
+                                {credits.toLocaleString()}
+                            </>
+                        ) : null}
                     </span>
                     {isRunning ? <LoaderCircle className="size-4 animate-spin" /> : <Play className="size-4" />}
                     <span>开始生成</span>

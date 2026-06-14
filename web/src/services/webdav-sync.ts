@@ -1,6 +1,8 @@
 "use client";
 
 import type { WebdavSyncConfig } from "@/stores/use-config-store";
+import { withBasePath } from "@/lib/base-path";
+import { useUserStore } from "@/stores/use-user-store";
 
 export const WEBDAV_MANIFEST_FILE_NAME = "manifest.json";
 const WEBDAV_REQUEST_TIMEOUT_MS = 120000;
@@ -79,7 +81,7 @@ async function webdavFetch(config: WebdavSyncConfig, path: string, init: Request
     const timer = window.setTimeout(() => controller.abort(), WEBDAV_REQUEST_TIMEOUT_MS);
     try {
         const url = buildWebdavUrl(config, path);
-        if (config.proxyMode === "nextjs") return await fetch("/webdav-proxy", { method: "POST", headers: proxyHeaders(url, init.method || "GET", headers), body: proxyBody(init), signal: controller.signal });
+        if (config.proxyMode === "nextjs") return await fetch(withBasePath("/webdav-proxy"), { method: "POST", headers: proxyHeaders(url, init.method || "GET", headers), body: proxyBody(init), signal: controller.signal });
         return await fetch(url, { ...init, headers, signal: controller.signal });
     } catch (error) {
         if (error instanceof Error && error.name === "AbortError") throw new Error("WebDAV 请求超时，请检查网络、代理或远端服务状态");
@@ -91,9 +93,12 @@ async function webdavFetch(config: WebdavSyncConfig, path: string, init: Request
 }
 
 function proxyHeaders(target: string, method: string, headers: Headers) {
+    const token = useUserStore.getState().token;
+    if (!token) throw new Error("请先登录后再使用 WebDAV 代理同步");
     const proxyHeaders = new Headers({
         "x-webdav-target": target,
         "x-webdav-method": method,
+        "x-canvas-authorization": `Bearer ${token}`,
     });
     copyProxyHeader(headers, proxyHeaders, "Authorization", "x-webdav-authorization");
     copyProxyHeader(headers, proxyHeaders, "Depth", "x-webdav-depth");

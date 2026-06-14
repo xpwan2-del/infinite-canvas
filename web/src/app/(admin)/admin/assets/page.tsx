@@ -6,6 +6,7 @@ import { Button, Card, Col, Flex, Form, Image, Input, Modal, Row, Select, Space,
 import { useEffect, useState } from "react";
 
 import { useCopyText } from "@/hooks/use-copy-text";
+import { withBasePath } from "@/lib/base-path";
 import type { AdminAsset } from "@/services/api/admin";
 import { useAdminAssets } from "./use-admin-assets";
 
@@ -27,6 +28,7 @@ export default function AdminAssetsPage() {
     const [editingAsset, setEditingAsset] = useState<Partial<AdminAsset> | null>(null);
     const [detailAsset, setDetailAsset] = useState<AdminAsset | null>(null);
     const [deletingAsset, setDeletingAsset] = useState<AdminAsset | null>(null);
+    const logoSrc = withBasePath("/logo.svg");
     const formType = Form.useWatch("type", form) || editingAsset?.type || "text";
     const tagOptions = tags.map((item) => ({ label: item, value: item }));
 
@@ -57,7 +59,7 @@ export default function AdminAssetsPage() {
             title: "封面",
             dataIndex: "coverUrl",
             width: 88,
-            render: (_, item) => <Image src={item.coverUrl || item.url || "/logo.svg"} alt={item.title} width={56} height={42} style={{ objectFit: "cover", borderRadius: 6 }} preview={{ mask: "放大" }} fallback="/logo.svg" />,
+            render: (_, item) => <Image src={item.coverUrl || item.url || logoSrc} alt={item.title} width={56} height={42} style={{ objectFit: "cover", borderRadius: 6 }} preview={{ mask: "放大" }} fallback={logoSrc} />,
         },
         {
             title: "标题",
@@ -224,7 +226,7 @@ export default function AdminAssetsPage() {
                 {detailAsset ? (
                     <Flex vertical gap={14}>
                         <Flex gap={14} align="start">
-                            <Image src={detailAsset.coverUrl || detailAsset.url || "/logo.svg"} alt={detailAsset.title} width={116} height={84} style={{ objectFit: "cover", borderRadius: 8 }} preview={{ mask: "放大" }} fallback="/logo.svg" />
+                            <Image src={detailAsset.coverUrl || detailAsset.url || logoSrc} alt={detailAsset.title} width={116} height={84} style={{ objectFit: "cover", borderRadius: 8 }} preview={{ mask: "放大" }} fallback={logoSrc} />
                             <Flex vertical gap={8} style={{ minWidth: 0 }}>
                                 <Typography.Title level={5} style={{ margin: 0 }}>
                                     {detailAsset.title}

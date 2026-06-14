@@ -12,17 +12,35 @@ import (
 )
 
 type Config struct {
-	Port                string `env:"PORT" envDefault:"8080"`
-	AdminUsername       string `env:"ADMIN_USERNAME" envDefault:"admin"`
-	AdminPassword       string `env:"ADMIN_PASSWORD" envDefault:"infinite-canvas"`
-	JWTSecret           string `env:"JWT_SECRET" envDefault:"infinite-canvas"`
-	JWTExpireHours      int    `env:"JWT_EXPIRE_HOURS" envDefault:"168"`
-	StorageDriver       string `env:"STORAGE_DRIVER" envDefault:"sqlite"`
-	DatabaseDSN         string `env:"DATABASE_DSN" envDefault:"data/infinite-canvas.db"`
-	PublicBaseURL       string `env:"PUBLIC_BASE_URL"`
-	LinuxDoAuthorizeURL string `env:"LINUX_DO_AUTHORIZE_URL" envDefault:"https://connect.linux.do/oauth2/authorize"`
-	LinuxDoTokenURL     string `env:"LINUX_DO_TOKEN_URL" envDefault:"https://connect.linux.do/oauth2/token"`
-	LinuxDoUserInfoURL  string `env:"LINUX_DO_USERINFO_URL" envDefault:"https://connect.linux.do/api/user"`
+	Port                      string `env:"PORT" envDefault:"8080"`
+	AdminUsername             string `env:"ADMIN_USERNAME" envDefault:"admin"`
+	AdminPassword             string `env:"ADMIN_PASSWORD" envDefault:"infinite-canvas"`
+	JWTSecret                 string `env:"JWT_SECRET" envDefault:"infinite-canvas"`
+	JWTExpireHours            int    `env:"JWT_EXPIRE_HOURS" envDefault:"168"`
+	StorageDriver             string `env:"STORAGE_DRIVER" envDefault:"sqlite"`
+	DatabaseDSN               string `env:"DATABASE_DSN" envDefault:"data/infinite-canvas.db"`
+	PublicBaseURL             string `env:"PUBLIC_BASE_URL"`
+	MediaStorageDriver        string `env:"MEDIA_STORAGE_DRIVER" envDefault:"local"`
+	AIRequestMaxBytes         int64  `env:"AI_REQUEST_MAX_BYTES" envDefault:"83886080"`
+	AIUserRateLimit           int    `env:"AI_USER_RATE_LIMIT" envDefault:"30"`
+	CanvasDisableLocalAuth    bool   `env:"CANVAS_DISABLE_LOCAL_AUTH" envDefault:"false"`
+	CanvasDisableLocalCredits bool   `env:"CANVAS_DISABLE_LOCAL_CREDITS" envDefault:"false"`
+	CanvasForceTopAIGateway   bool   `env:"CANVAS_FORCE_TOP_AI_GATEWAY" envDefault:"false"`
+	TopAIPublicBaseURL        string `env:"TOP_AI_PUBLIC_BASE_URL"`
+	TopAIInternalBaseURL      string `env:"TOP_AI_INTERNAL_BASE_URL"`
+	TopAIModelCatalogURL      string `env:"TOP_AI_MODEL_CATALOG_URL"`
+	TopAIGatewayAPIKey        string `env:"TOP_AI_GATEWAY_API_KEY"`
+	R2Bucket                  string `env:"R2_BUCKET"`
+	R2Endpoint                string `env:"R2_ENDPOINT"`
+	R2Region                  string `env:"R2_REGION" envDefault:"auto"`
+	R2PublicBaseURL           string `env:"R2_PUBLIC_BASE_URL"`
+	R2AccessKeyID             string `env:"R2_ACCESS_KEY_ID"`
+	R2SecretAccessKey         string `env:"R2_SECRET_ACCESS_KEY"`
+	R2TempReferencePrefix     string `env:"R2_TEMP_REFERENCE_PREFIX" envDefault:"temp/reference"`
+	TopAISessionURL           string `env:"TOP_AI_SESSION_URL" envDefault:"/api/v1/app/canvas/session"`
+	LinuxDoAuthorizeURL       string `env:"LINUX_DO_AUTHORIZE_URL" envDefault:"https://connect.linux.do/oauth2/authorize"`
+	LinuxDoTokenURL           string `env:"LINUX_DO_TOKEN_URL" envDefault:"https://connect.linux.do/oauth2/token"`
+	LinuxDoUserInfoURL        string `env:"LINUX_DO_USERINFO_URL" envDefault:"https://connect.linux.do/api/user"`
 }
 
 var Cfg Config

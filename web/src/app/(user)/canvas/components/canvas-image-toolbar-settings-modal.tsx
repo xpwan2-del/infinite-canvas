@@ -100,12 +100,14 @@ export function ImageToolSettingsModal({
             frames.push(window.requestAnimationFrame(sync));
         });
         frames.push(firstFrame);
-        const timer = window.setTimeout(sync, 120);
-        const resizeObserver = typeof ResizeObserver !== "undefined" && toolbar ? new ResizeObserver(sync) : null;
-        resizeObserver?.observe(toolbar);
-        toolbar?.childNodes.forEach((child) => {
-            if (child instanceof Element) resizeObserver?.observe(child);
-        });
+		const timer = window.setTimeout(sync, 120);
+		const resizeObserver = typeof ResizeObserver !== "undefined" && toolbar ? new ResizeObserver(sync) : null;
+		if (resizeObserver && toolbar) {
+			resizeObserver.observe(toolbar);
+			toolbar.childNodes.forEach((child) => {
+				if (child instanceof Element) resizeObserver.observe(child);
+			});
+		}
         sync();
         window.addEventListener("resize", syncPreviewScroll);
         return () => {

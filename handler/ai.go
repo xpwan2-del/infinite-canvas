@@ -3,6 +3,7 @@ package handler
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -10,7 +11,9 @@ import (
 	"mime/multipart"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/basketikun/infinite-canvas/config"
 	"github.com/basketikun/infinite-canvas/service"
 )
 
@@ -43,9 +46,31 @@ func AIVideoContent(w http.ResponseWriter, r *http.Request, id string) {
 }
 
 func proxyAIGetRequest(w http.ResponseWriter, r *http.Request, path string) {
+	user, ok := service.UserFromContext(r.Context())
+	if !ok {
+		Fail(w, "未登录或权限不足")
+		return
+	}
+	if !service.AllowAIRequest(user.ID, config.Cfg.AIUserRateLimit, time.Minute) {
+		Fail(w, "请求过于频繁，请稍后再试")
+		return
+	}
 	modelName := r.URL.Query().Get("model")
 	if strings.TrimSpace(modelName) == "" {
 		modelName = "grok-imagine-video"
+	}
+	if config.Cfg.CanvasForceTopAIGateway {
+		gatewayPath := path
+		if r.URL.RawQuery != "" {
+			gatewayPath += "?" + r.URL.RawQuery
+		}
+		request, err := service.BuildTopAIGatewayRequest(r.Context(), user, http.MethodGet, gatewayPath, nil, "")
+		if err != nil {
+			FailError(w, err)
+			return
+		}
+		copyAIResponse(w, request, nil)
+		return
 	}
 	channel, err := service.SelectModelChannel(modelName)
 	if err != nil {
@@ -64,8 +89,14 @@ func proxyAIGetRequest(w http.ResponseWriter, r *http.Request, path string) {
 }
 
 func proxyAIRequest(w http.ResponseWriter, r *http.Request, path string) {
+	r.Body = http.MaxBytesReader(w, r.Body, aiRequestMaxBytes())
 	body, contentType, modelName, err := readAIRequest(r)
 	if err != nil {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			Fail(w, "请求体过大，请使用对象存储素材 URL 或压缩素材后重试")
+			return
+		}
 		log.Printf("AI proxy request read failed: %v", err)
 		Fail(w, "AI 接口请求失败")
 		return
@@ -73,6 +104,19 @@ func proxyAIRequest(w http.ResponseWriter, r *http.Request, path string) {
 	user, ok := service.UserFromContext(r.Context())
 	if !ok {
 		Fail(w, "未登录或权限不足")
+		return
+	}
+	if !service.AllowAIRequest(user.ID, config.Cfg.AIUserRateLimit, time.Minute) {
+		Fail(w, "请求过于频繁，请稍后再试")
+		return
+	}
+	if config.Cfg.CanvasForceTopAIGateway {
+		request, err := service.BuildTopAIGatewayRequest(r.Context(), user, http.MethodPost, path, body, contentType)
+		if err != nil {
+			FailError(w, err)
+			return
+		}
+		copyAIResponse(w, request, nil)
 		return
 	}
 	credits, err := service.ModelCost(modelName)
@@ -212,6 +256,13 @@ func readAIRequestCount(body []byte, contentType string) int {
 }
 
 var errMissingModel = &aiError{"缺少模型名称"}
+
+func aiRequestMaxBytes() int64 {
+	if config.Cfg.AIRequestMaxBytes > 0 {
+		return config.Cfg.AIRequestMaxBytes
+	}
+	return 80 << 20
+}
 
 func resolveAIProxyPath(baseURL string, modelName string, path string) string {
 	if !isArkSeedanceVideo(baseURL, modelName) {

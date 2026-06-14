@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-import { AUTH_TOKEN_KEY, fetchCurrentUser, login, register, type AuthPayload, type AuthUser } from "@/services/api/auth";
+import { AUTH_TOKEN_KEY, fetchCurrentUser, getTopAIAuthToken, login, loginWithTopAI, register, type AuthPayload, type AuthUser } from "@/services/api/auth";
 
 type UserStore = {
     token: string;
@@ -13,6 +13,7 @@ type UserStore = {
     setSession: (token: string, user: AuthUser) => void;
     clearSession: () => void;
     hydrateUser: () => Promise<void>;
+    hydrateTopAISession: () => Promise<void>;
     login: (payload: AuthPayload) => Promise<AuthUser>;
     register: (payload: AuthPayload) => Promise<AuthUser>;
 };
@@ -29,19 +30,35 @@ export const useUserStore = create<UserStore>()(
             hydrateUser: async () => {
                 const token = get().token;
                 if (!token) {
-                    set({ user: null, isReady: true });
+                    await get().hydrateTopAISession();
                     return;
                 }
                 set({ isLoading: true });
                 try {
                     const user = await fetchCurrentUser(token);
                     if (user.role === "guest") {
-                        set({ token: "", user: null, isReady: true, isLoading: false });
+                        set({ token: "", user: null });
+                        await get().hydrateTopAISession();
                         return;
                     }
                     set({ user, isReady: true, isLoading: false });
                 } catch {
-                    set({ token: "", user: null, isReady: true, isLoading: false });
+                    set({ token: "", user: null });
+                    await get().hydrateTopAISession();
+                }
+            },
+            hydrateTopAISession: async () => {
+                const topAIToken = getTopAIAuthToken().trim();
+                if (!topAIToken) {
+                    set({ user: null, isReady: true, isLoading: false });
+                    return;
+                }
+                set({ isLoading: true });
+                try {
+                    const session = await loginWithTopAI(topAIToken);
+                    set({ token: session.token, user: session.user, isReady: true, isLoading: false });
+                } catch {
+                    set({ user: null, isReady: true, isLoading: false });
                 }
             },
             login: async (payload) => {
