@@ -2,7 +2,7 @@
 
 import { CheckCircleOutlined, DeleteOutlined, FormatPainterOutlined, LoadingOutlined, PlusOutlined, ReloadOutlined, SaveOutlined } from "@ant-design/icons";
 import { json } from "@codemirror/lang-json";
-import { App, Button, Card, Checkbox, Col, Drawer, Flex, Form, Input, InputNumber, Modal, Row, Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography } from "antd";
+import { Alert, App, Button, Card, Checkbox, Col, Drawer, Flex, Form, Input, InputNumber, Modal, Row, Segmented, Select, Space, Switch, Table, Tabs, Tag, Typography } from "antd";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import { EditorView } from "@uiw/react-codemirror";
@@ -77,6 +77,7 @@ export default function AdminSettingsPage() {
     const [modelCosts, setModelCosts] = useState<AdminModelCost[]>([]);
     const [knownModels, setKnownModels] = useState<string[]>([]);
     const publicModels = Form.useWatch(["public", "modelChannel", "availableModels"], form) || [];
+    const isTopAIGatewayManaged = Form.useWatch(["public", "canvas", "forceTopAIGateway"], form) === true;
     const channelModels = useMemo(() => collectChannelModels(channels), [channels]);
     const channelTableData = useMemo(() => channels.map((channel, index) => ({ ...channel, _index: index, _rowKey: `${index}-${channel.name}-${channel.baseUrl}` })), [channels]);
     const activeMode = editorMode[activeTab];
@@ -415,74 +416,87 @@ export default function AdminSettingsPage() {
                         activeMode === "visual" ? (
                             <Form form={form} layout="vertical" initialValues={emptySettings} requiredMark={false}>
                                 <Row gutter={16}>
-                                    <Col span={24}>
-                                        <Form.Item name={["public", "modelChannel", "availableModels"]} label="系统可用模型(请先在私有配置里配置渠道)" extra="保存设置时会自动合并所有已启用私有渠道的模型，前台模型下拉会读取这里的公开列表">
-                                            <Select mode="multiple" placeholder="请选择系统可用模型" options={channelModels.map((item) => ({ label: item, value: item }))} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} md={6}>
-                                        <Form.Item name={["public", "modelChannel", "defaultModel"]} label="默认模型">
-                                            <Select showSearch allowClear options={publicModels.map((item) => ({ label: item, value: item }))} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} md={6}>
-                                        <Form.Item name={["public", "modelChannel", "defaultImageModel"]} label="默认图片模型">
-                                            <Select showSearch allowClear options={publicModels.map((item) => ({ label: item, value: item }))} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} md={6}>
-                                        <Form.Item name={["public", "modelChannel", "defaultVideoModel"]} label="默认视频模型">
-                                            <Select showSearch allowClear options={publicModels.map((item) => ({ label: item, value: item }))} />
-                                        </Form.Item>
-                                    </Col>
-                                    <Col xs={24} md={6}>
-                                        <Form.Item name={["public", "modelChannel", "defaultTextModel"]} label="默认文本模型">
-                                            <Select showSearch allowClear options={publicModels.map((item) => ({ label: item, value: item }))} />
-                                        </Form.Item>
-                                    </Col>
+                                    {isTopAIGatewayManaged ? (
+                                        <Col span={24}>
+                                            <Alert showIcon type="info" message="TOP-AI 统一网关托管中" description="模型、Key、余额与计费由 TOP-AI 后台统一管理；画布只读取受保护的 TOP-AI 模型列表，不在这里配置本地渠道。" />
+                                        </Col>
+                                    ) : (
+                                        <>
+                                            <Col span={24}>
+                                                <Form.Item name={["public", "modelChannel", "availableModels"]} label="系统可用模型(请先在私有配置里配置渠道)" extra="保存设置时会自动合并所有已启用私有渠道的模型，前台模型下拉会读取这里的公开列表">
+                                                    <Select mode="multiple" placeholder="请选择系统可用模型" options={channelModels.map((item) => ({ label: item, value: item }))} />
+                                                </Form.Item>
+                                            </Col>
+                                            <Col xs={24} md={6}>
+                                                <Form.Item name={["public", "modelChannel", "defaultModel"]} label="默认模型">
+                                                    <Select showSearch allowClear options={publicModels.map((item) => ({ label: item, value: item }))} />
+                                                </Form.Item>
+                                            </Col>
+                                            <Col xs={24} md={6}>
+                                                <Form.Item name={["public", "modelChannel", "defaultImageModel"]} label="默认图片模型">
+                                                    <Select showSearch allowClear options={publicModels.map((item) => ({ label: item, value: item }))} />
+                                                </Form.Item>
+                                            </Col>
+                                            <Col xs={24} md={6}>
+                                                <Form.Item name={["public", "modelChannel", "defaultVideoModel"]} label="默认视频模型">
+                                                    <Select showSearch allowClear options={publicModels.map((item) => ({ label: item, value: item }))} />
+                                                </Form.Item>
+                                            </Col>
+                                            <Col xs={24} md={6}>
+                                                <Form.Item name={["public", "modelChannel", "defaultTextModel"]} label="默认文本模型">
+                                                    <Select showSearch allowClear options={publicModels.map((item) => ({ label: item, value: item }))} />
+                                                </Form.Item>
+                                            </Col>
+                                        </>
+                                    )}
                                     <Col span={24}>
                                         <Form.Item name={["public", "modelChannel", "systemPrompt"]} label="系统提示词">
                                             <Input.TextArea rows={4} />
                                         </Form.Item>
                                     </Col>
-                                    <Col span={24}>
-                                        <Form.Item name={["public", "modelChannel", "allowCustomChannel"]} label="是否允许用户自定义渠道" extra="开启后，前端可提供走后端渠道和用户自定义 baseUrl 直连两种模式" valuePropName="checked">
-                                            <Switch />
-                                        </Form.Item>
-                                    </Col>
+                                    {!isTopAIGatewayManaged ? (
+                                        <Col span={24}>
+                                            <Form.Item name={["public", "modelChannel", "allowCustomChannel"]} label="是否允许用户自定义渠道" extra="开启后，前端可提供走后端渠道和用户自定义 baseUrl 直连两种模式" valuePropName="checked">
+                                                <Switch />
+                                            </Form.Item>
+                                        </Col>
+                                    ) : null}
                                     <Col span={24}>
                                         <Form.Item name={["public", "auth", "allowRegister"]} label="是否允许用户注册" extra="关闭后隐藏注册入口，注册接口也会拒绝新用户创建" valuePropName="checked">
                                             <Switch />
                                         </Form.Item>
                                     </Col>
-                                    <Col span={24}>
-                                        <Typography.Title level={5}>模型算力点</Typography.Title>
-                                        <Table
-                                            rowKey="model"
-                                            pagination={false}
-                                            size="small"
-                                            dataSource={publicModels.map((model) => ({ model, credits: modelCostCredits(modelCosts, model) }))}
-                                            columns={[
-                                                { title: "模型", dataIndex: "model" },
-                                                {
-                                                    title: "每次调用扣除",
-                                                    dataIndex: "credits",
-                                                    width: 220,
-                                                    render: (_, item) => (
-                                                        <InputNumber
-                                                            min={0}
-                                                            step={1}
-                                                            precision={0}
-                                                            className="!w-full"
-                                                            value={item.credits}
-                                                            addonAfter="点"
-                                                            onChange={(value) => setModelCost(form, setModelCosts, item.model, Number(value) || 0)}
-                                                        />
-                                                    ),
-                                                },
-                                            ]}
-                                        />
-                                    </Col>
+                                    {!isTopAIGatewayManaged ? (
+                                        <Col span={24}>
+                                            <Typography.Title level={5}>模型算力点</Typography.Title>
+                                            <Table
+                                                rowKey="model"
+                                                pagination={false}
+                                                size="small"
+                                                dataSource={publicModels.map((model) => ({ model, credits: modelCostCredits(modelCosts, model) }))}
+                                                columns={[
+                                                    { title: "模型", dataIndex: "model" },
+                                                    {
+                                                        title: "每次调用扣除",
+                                                        dataIndex: "credits",
+                                                        width: 220,
+                                                        render: (_, item) => (
+                                                            <InputNumber min={0} step={1} precision={0} className="!w-full" value={item.credits} addonAfter="点" onChange={(value) => setModelCost(form, setModelCosts, item.model, Number(value) || 0)} />
+                                                        ),
+                                                    },
+                                                ]}
+                                            />
+                                        </Col>
+                                    ) : null}
+                                    <Form.Item name={["public", "modelChannel", "allowCustomChannel"]} hidden valuePropName="checked">
+                                        <Switch />
+                                    </Form.Item>
+                                    <Form.Item name={["public", "canvas", "forceTopAIGateway"]} hidden valuePropName="checked">
+                                        <Switch />
+                                    </Form.Item>
+                                    <Form.Item name={["public", "canvas", "disableLocalCredits"]} hidden valuePropName="checked">
+                                        <Switch />
+                                    </Form.Item>
                                 </Row>
                             </Form>
                         ) : (
@@ -550,55 +564,61 @@ export default function AdminSettingsPage() {
                                         </Col>
                                     </Row>
                                 </Card>
-                                <Button type="primary" icon={<PlusOutlined />} onClick={() => openChannelDrawer(null)}>
-                                    新增渠道
-                                </Button>
-                                <Table
-                                    rowKey="_rowKey"
-                                    pagination={false}
-                                    dataSource={channelTableData}
-                                    columns={[
-                                        { title: "名称", dataIndex: "name", render: (value) => value || "未命名渠道" },
-                                        { title: "协议", dataIndex: "protocol", width: 96, render: (value) => <Tag>{value || "openai"}</Tag> },
-                                        { title: "状态", dataIndex: "enabled", width: 96, render: (value) => <Tag color={value ? "success" : "default"}>{value ? "已启用" : "已停用"}</Tag> },
-                                        {
-                                            title: "模型",
-                                            dataIndex: "models",
-                                            render: (value: string[]) => (
-                                                <Typography.Text ellipsis style={{ maxWidth: 360 }}>
-                                                    {modelSummary(value || [])}
-                                                </Typography.Text>
-                                            ),
-                                        },
-                                        { title: "权重", dataIndex: "weight", width: 88 },
-                                        {
-                                            title: "操作",
-                                            key: "actions",
-                                            width: 220,
-                                            align: "right",
-                                            render: (_, item) => (
-                                                <Space size={4}>
-                                                    <Button size="small" onClick={() => openTestDialog(item._index)}>
-                                                        测试
-                                                    </Button>
-                                                    <Button size="small" onClick={() => openChannelDrawer(item._index)}>
-                                                        编辑
-                                                    </Button>
-                                                    <Button
-                                                        danger
-                                                        size="small"
-                                                        icon={<DeleteOutlined />}
-                                                        onClick={() => {
-                                                            const nextChannels = [...channels];
-                                                            nextChannels.splice(item._index, 1);
-                                                            void persistChannels(nextChannels);
-                                                        }}
-                                                    />
-                                                </Space>
-                                            ),
-                                        },
-                                    ]}
-                                />
+                                {isTopAIGatewayManaged ? (
+                                    <Alert showIcon type="info" message="本地渠道已由 TOP-AI 统一网关接管" description="客户侧不需要在画布里配置 Base URL、API Key、模型或余额；如需调整模型，请到 TOP-AI 后台账号和分组里处理。" />
+                                ) : (
+                                    <>
+                                        <Button type="primary" icon={<PlusOutlined />} onClick={() => openChannelDrawer(null)}>
+                                            新增渠道
+                                        </Button>
+                                        <Table
+                                            rowKey="_rowKey"
+                                            pagination={false}
+                                            dataSource={channelTableData}
+                                            columns={[
+                                                { title: "名称", dataIndex: "name", render: (value) => value || "未命名渠道" },
+                                                { title: "协议", dataIndex: "protocol", width: 96, render: (value) => <Tag>{value || "openai"}</Tag> },
+                                                { title: "状态", dataIndex: "enabled", width: 96, render: (value) => <Tag color={value ? "success" : "default"}>{value ? "已启用" : "已停用"}</Tag> },
+                                                {
+                                                    title: "模型",
+                                                    dataIndex: "models",
+                                                    render: (value: string[]) => (
+                                                        <Typography.Text ellipsis style={{ maxWidth: 360 }}>
+                                                            {modelSummary(value || [])}
+                                                        </Typography.Text>
+                                                    ),
+                                                },
+                                                { title: "权重", dataIndex: "weight", width: 88 },
+                                                {
+                                                    title: "操作",
+                                                    key: "actions",
+                                                    width: 220,
+                                                    align: "right",
+                                                    render: (_, item) => (
+                                                        <Space size={4}>
+                                                            <Button size="small" onClick={() => openTestDialog(item._index)}>
+                                                                测试
+                                                            </Button>
+                                                            <Button size="small" onClick={() => openChannelDrawer(item._index)}>
+                                                                编辑
+                                                            </Button>
+                                                            <Button
+                                                                danger
+                                                                size="small"
+                                                                icon={<DeleteOutlined />}
+                                                                onClick={() => {
+                                                                    const nextChannels = [...channels];
+                                                                    nextChannels.splice(item._index, 1);
+                                                                    void persistChannels(nextChannels);
+                                                                }}
+                                                            />
+                                                        </Space>
+                                                    ),
+                                                },
+                                            ]}
+                                        />
+                                    </>
+                                )}
                             </Flex>
                         </Form>
                     ) : (
@@ -848,6 +868,10 @@ function normalizePublicSetting(setting: Partial<AdminSettings["public"]> = {}):
                 enabled: setting.auth?.linuxDo?.enabled === true,
             },
         },
+        canvas: {
+            disableLocalCredits: setting.canvas?.disableLocalCredits === true,
+            forceTopAIGateway: setting.canvas?.forceTopAIGateway === true,
+        },
     };
 }
 
@@ -912,11 +936,7 @@ function collectChannelModels(channels: AdminModelChannel[]) {
 }
 
 function collectKnownModels(settings: AdminSettings) {
-    return uniqueModels([
-        ...(settings.public.modelChannel.availableModels || []),
-        ...(settings.public.modelChannel.modelCosts || []).map((item) => item.model),
-        ...settings.private.channels.flatMap((channel) => channel.models || []),
-    ]);
+    return uniqueModels([...(settings.public.modelChannel.availableModels || []), ...(settings.public.modelChannel.modelCosts || []).map((item) => item.model), ...settings.private.channels.flatMap((channel) => channel.models || [])]);
 }
 
 function buildModelSelectGroups(sourceModels: string[], existingModels: string[]): Record<ModelSelectTabKey, string[]> {
@@ -968,7 +988,9 @@ async function collectSettings(form: any, editorMode: Record<SettingsTabKey, Edi
         }
         values.private = privateSetting;
     }
-    values.public.modelChannel.availableModels = collectChannelModels(values.private.channels);
+    if (!values.public.canvas.forceTopAIGateway) {
+        values.public.modelChannel.availableModels = collectChannelModels(values.private.channels);
+    }
     return normalizeSettings(values);
 }
 

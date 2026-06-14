@@ -69,6 +69,10 @@ func proxyAIGetRequest(w http.ResponseWriter, r *http.Request, path string) {
 			FailError(w, err)
 			return
 		}
+		if strings.HasPrefix(path, "/videos/") && strings.HasSuffix(path, "/content") {
+			copyAIGeneratedVideoContentResponse(w, request)
+			return
+		}
 		copyAIResponse(w, request, nil)
 		return
 	}
@@ -186,6 +190,70 @@ func copyAIResponse(w http.ResponseWriter, request *http.Request, onFailure func
 	}
 	w.WriteHeader(response.StatusCode)
 	_, _ = io.Copy(w, response.Body)
+}
+
+func copyAIGeneratedVideoContentResponse(w http.ResponseWriter, request *http.Request) {
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		log.Printf("AI video content request failed: url=%s err=%v", request.URL.String(), err)
+		Fail(w, "视频内容下载失败")
+		return
+	}
+	defer response.Body.Close()
+	if response.StatusCode >= http.StatusBadRequest {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		log.Printf("AI video content upstream error: url=%s status=%d", request.URL.String(), response.StatusCode)
+		Fail(w, aiUpstreamStatusMessage(response.StatusCode, body))
+		return
+	}
+
+	contentType := response.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "video/mp4"
+	}
+	maxBytes := aiRequestMaxBytes()
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxBytes+1))
+	if err != nil {
+		Fail(w, "视频内容读取失败")
+		return
+	}
+	if int64(len(body)) > maxBytes {
+		Fail(w, "视频内容过大，请联系管理员调整对象存储策略")
+		return
+	}
+	if result, err := service.SaveGeneratedMedia(request.Context(), service.ReferenceMediaUploadInput{
+		Reader:   bytes.NewReader(body),
+		MimeType: contentType,
+		Ext:      generatedVideoExt(contentType),
+		MaxBytes: maxBytes,
+	}); err != nil {
+		log.Printf("save generated video to R2 failed: err=%v", err)
+	} else if result.URL != "" {
+		w.Header().Set("X-Canvas-Media-URL", result.URL)
+	}
+	for key, values := range response.Header {
+		if strings.EqualFold(key, "Content-Length") {
+			continue
+		}
+		for _, value := range values {
+			w.Header().Add(key, value)
+		}
+	}
+	w.Header().Set("Content-Type", contentType)
+	w.WriteHeader(response.StatusCode)
+	_, _ = w.Write(body)
+}
+
+func generatedVideoExt(contentType string) string {
+	contentType = strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
+	switch contentType {
+	case "video/webm":
+		return ".webm"
+	case "video/quicktime":
+		return ".mov"
+	default:
+		return ".mp4"
+	}
 }
 
 func readAIRequest(r *http.Request) ([]byte, string, string, error) {

@@ -28,7 +28,7 @@ type Config struct {
 	CanvasForceTopAIGateway   bool   `env:"CANVAS_FORCE_TOP_AI_GATEWAY" envDefault:"false"`
 	TopAIPublicBaseURL        string `env:"TOP_AI_PUBLIC_BASE_URL"`
 	TopAIInternalBaseURL      string `env:"TOP_AI_INTERNAL_BASE_URL"`
-	TopAIModelCatalogURL      string `env:"TOP_AI_MODEL_CATALOG_URL"`
+	TopAIModelsURL            string `env:"TOP_AI_MODELS_URL"`
 	TopAIGatewayAPIKey        string `env:"TOP_AI_GATEWAY_API_KEY"`
 	R2Bucket                  string `env:"R2_BUCKET"`
 	R2Endpoint                string `env:"R2_ENDPOINT"`
@@ -37,6 +37,7 @@ type Config struct {
 	R2AccessKeyID             string `env:"R2_ACCESS_KEY_ID"`
 	R2SecretAccessKey         string `env:"R2_SECRET_ACCESS_KEY"`
 	R2TempReferencePrefix     string `env:"R2_TEMP_REFERENCE_PREFIX" envDefault:"temp/reference"`
+	R2GeneratedPrefix         string `env:"R2_GENERATED_PREFIX" envDefault:"generated"`
 	TopAISessionURL           string `env:"TOP_AI_SESSION_URL" envDefault:"/api/v1/app/canvas/session"`
 	LinuxDoAuthorizeURL       string `env:"LINUX_DO_AUTHORIZE_URL" envDefault:"https://connect.linux.do/oauth2/authorize"`
 	LinuxDoTokenURL           string `env:"LINUX_DO_TOKEN_URL" envDefault:"https://connect.linux.do/oauth2/token"`

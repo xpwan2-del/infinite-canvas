@@ -6,7 +6,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 # 待测试
 
 - TOP-AI 集成模式新增 `CANVAS_DISABLE_LOCAL_AUTH`、`CANVAS_DISABLE_LOCAL_CREDITS` 和 `CANVAS_FORCE_TOP_AI_GATEWAY`；开启后公开注册/登录会提示使用 TOP-AI，前台不展示画布本地 credits，AI 请求由画布后端使用服务端 `TOP_AI_GATEWAY_API_KEY` 转发到 TOP-AI Gateway，并携带 canvas 来源和 TOP-AI 用户标记。需要在同域 `/apps/canvas`、TOP-AI 登录态、真实网关 API Key 和测试余额下验证图片、文本、音频、视频请求。
-- 公开设置会优先从 TOP-AI 模型目录读取可用模型；配置 `TOP_AI_MODEL_CATALOG_URL` 或 `TOP_AI_INTERNAL_BASE_URL` 后，需要验证前台模型下拉只出现 TOP-AI 已售卖模型，目录不可用时页面不会直接崩溃。
+- 画布模型下拉通过受保护接口读取 TOP-AI `/v1/models`；配置 `TOP_AI_MODELS_URL` 或 `TOP_AI_INTERNAL_BASE_URL` 后，需要验证前台模型下拉只出现 TOP-AI 网关真实可用模型。
 - AI 代理新增请求体大小限制和用户维度限流；需要验证超大请求返回明确提示，正常图片/视频参考素材 URL 请求不受影响。
 - `webdav-proxy` 新增画布登录态校验、内网/metadata 地址阻断、host allowlist 和请求体大小限制；需要验证已登录用户对可信 WebDAV 可同步，未登录、localhost、私网 IP、云 metadata 地址和超大请求都会被拒绝。
 - 参考素材上传支持通过 `MEDIA_STORAGE_DRIVER` 在本地存储和 R2/S3 对象存储之间切换；生产配置 `MEDIA_STORAGE_DRIVER=r2`、`R2_PUBLIC_BASE_URL` 和 R2 服务端凭证后，`/api/v1/media/references` 应返回 `temp/reference/` 下的公网 URL，需要验证图片、参考视频和参考音频都能被上游视频模型拉取。

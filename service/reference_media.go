@@ -104,6 +104,22 @@ func saveLocalReferenceMedia(id string, input ReferenceMediaUploadInput) (Refere
 }
 
 func saveR2ReferenceMedia(ctx context.Context, id string, input ReferenceMediaUploadInput) (ReferenceMediaUploadResult, error) {
+	return saveR2Media(ctx, cleanR2Prefix(config.Cfg.R2TempReferencePrefix), id, input)
+}
+
+func SaveGeneratedMedia(ctx context.Context, input ReferenceMediaUploadInput) (ReferenceMediaUploadResult, error) {
+	if input.Reader == nil || input.Ext == "" || input.MimeType == "" || input.MaxBytes <= 0 {
+		return ReferenceMediaUploadResult{}, ErrReferenceMediaStorageConfig
+	}
+	driver := strings.ToLower(strings.TrimSpace(config.Cfg.MediaStorageDriver))
+	if driver != "r2" && driver != "s3" {
+		return ReferenceMediaUploadResult{}, ErrReferenceMediaUnsupportedDriver
+	}
+	id := uuid.NewString() + input.Ext
+	return saveR2Media(ctx, cleanR2PrefixOrDefault(config.Cfg.R2GeneratedPrefix, "generated"), id, input)
+}
+
+func saveR2Media(ctx context.Context, prefix string, id string, input ReferenceMediaUploadInput) (ReferenceMediaUploadResult, error) {
 	bucket := strings.TrimSpace(config.Cfg.R2Bucket)
 	endpoint := strings.TrimRight(strings.TrimSpace(config.Cfg.R2Endpoint), "/")
 	publicBaseURL := strings.TrimRight(strings.TrimSpace(config.Cfg.R2PublicBaseURL), "/")
@@ -124,7 +140,7 @@ func saveR2ReferenceMedia(ctx context.Context, id string, input ReferenceMediaUp
 	if bytes <= 0 {
 		return ReferenceMediaUploadResult{}, ErrReferenceMediaEmpty
 	}
-	key := path.Join(cleanR2Prefix(config.Cfg.R2TempReferencePrefix), id)
+	key := path.Join(prefix, id)
 	region := strings.TrimSpace(config.Cfg.R2Region)
 	if region == "" {
 		region = "auto"
@@ -191,9 +207,13 @@ func spoolLimited(src io.Reader, maxBytes int64) (*os.File, int64, error) {
 }
 
 func cleanR2Prefix(prefix string) string {
+	return cleanR2PrefixOrDefault(prefix, "temp/reference")
+}
+
+func cleanR2PrefixOrDefault(prefix string, fallback string) string {
 	prefix = strings.Trim(strings.TrimSpace(prefix), "/")
 	if prefix == "" {
-		return "temp/reference"
+		return fallback
 	}
 	return prefix
 }

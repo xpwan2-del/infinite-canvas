@@ -6,6 +6,7 @@ import { persist } from "zustand/middleware";
 
 import { apiGet } from "@/services/api/request";
 import type { AdminPublicSettings } from "@/services/api/admin";
+import { fetchCanvasModels, type CanvasModelList } from "@/services/api/models";
 
 export type AiConfig = {
     channelMode: "remote" | "local";
@@ -91,11 +92,13 @@ type ConfigStore = {
     webdav: WebdavSyncConfig;
     publicSettings: AdminPublicSettings | null;
     isPublicSettingsLoading: boolean;
+    isModelListLoading: boolean;
     isConfigOpen: boolean;
     shouldPromptContinue: boolean;
     updateConfig: <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
     updateWebdavConfig: <K extends keyof WebdavSyncConfig>(key: K, value: WebdavSyncConfig[K]) => void;
     loadPublicSettings: () => Promise<void>;
+    loadTopAIModels: (token: string) => Promise<void>;
     isAiConfigReady: (config: AiConfig, model: string) => boolean;
     openConfigDialog: (shouldPromptContinue?: boolean) => void;
     setConfigDialogOpen: (isOpen: boolean) => void;
@@ -149,7 +152,20 @@ function isVideoModelName(model: string) {
 
 function isImageModelName(model: string) {
     const value = model.toLowerCase();
-    return !isVideoModelName(model) && !isAudioModelName(model) && (value.includes("seedream") || value.includes("gpt-image") || value.includes("image") || value.includes("dall-e") || value.includes("dalle") || value.includes("imagen") || value.includes("flux") || value.includes("sdxl") || value.includes("stable-diffusion") || value.includes("midjourney"));
+    return (
+        !isVideoModelName(model) &&
+        !isAudioModelName(model) &&
+        (value.includes("seedream") ||
+            value.includes("gpt-image") ||
+            value.includes("image") ||
+            value.includes("dall-e") ||
+            value.includes("dalle") ||
+            value.includes("imagen") ||
+            value.includes("flux") ||
+            value.includes("sdxl") ||
+            value.includes("stable-diffusion") ||
+            value.includes("midjourney"))
+    );
 }
 
 function isAudioModelName(model: string) {
@@ -193,6 +209,7 @@ export const useConfigStore = create<ConfigStore>()(
             webdav: defaultWebdavSyncConfig,
             publicSettings: null,
             isPublicSettingsLoading: false,
+            isModelListLoading: false,
             isConfigOpen: false,
             shouldPromptContinue: false,
             updateConfig: (key, value) =>
@@ -216,6 +233,17 @@ export const useConfigStore = create<ConfigStore>()(
                     set({ publicSettings: await apiGet<AdminPublicSettings>("/api/settings") });
                 } finally {
                     set({ isPublicSettingsLoading: false });
+                }
+            },
+            loadTopAIModels: async (token) => {
+                if (!token || get().isModelListLoading) return;
+                set({ isModelListLoading: true });
+                try {
+                    const publicSettings = get().publicSettings || (await apiGet<AdminPublicSettings>("/api/settings"));
+                    const modelList = normalizeCanvasModelList(await fetchCanvasModels(token));
+                    set({ publicSettings: mergeCanvasModelsIntoPublicSettings(publicSettings, modelList) });
+                } finally {
+                    set({ isModelListLoading: false });
                 }
             },
             isAiConfigReady: (config, model) => isAiConfigReady(config, model),
@@ -262,7 +290,48 @@ export const useConfigStore = create<ConfigStore>()(
 );
 
 function normalizeModelList(models: string[]) {
-    return Array.from(new Set((models || []).map((model) => model.trim()).filter(Boolean)));
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const model of models || []) {
+        const value = model.trim();
+        if (!value) continue;
+        const key = value.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        result.push(value);
+    }
+    return result;
+}
+
+function normalizeCanvasModelList(modelList: CanvasModelList): CanvasModelList {
+    const models = normalizeModelList(modelList.models);
+    return {
+        models,
+        textModels: normalizeModelList(modelList.textModels?.length ? modelList.textModels : filterModelsByCapability(models, "text")),
+        imageModels: normalizeModelList(modelList.imageModels?.length ? modelList.imageModels : filterModelsByCapability(models, "image")),
+        videoModels: normalizeModelList(modelList.videoModels?.length ? modelList.videoModels : filterModelsByCapability(models, "video")),
+        audioModels: normalizeModelList(modelList.audioModels?.length ? modelList.audioModels : filterModelsByCapability(models, "audio")),
+    };
+}
+
+function mergeCanvasModelsIntoPublicSettings(publicSettings: AdminPublicSettings | null, modelList: CanvasModelList): AdminPublicSettings | null {
+    if (!publicSettings) return publicSettings;
+    const modelChannel = publicSettings.modelChannel;
+    const defaultTextModel = validDefault(modelChannel.defaultTextModel, modelList.textModels) || preferredModel(modelList.textModels, isTextModelName);
+    const defaultImageModel = validDefault(modelChannel.defaultImageModel, modelList.imageModels) || preferredModel(modelList.imageModels, isImageModelName);
+    const defaultVideoModel = validDefault(modelChannel.defaultVideoModel, modelList.videoModels) || preferredModel(modelList.videoModels, isVideoModelName);
+    const defaultModel = validDefault(modelChannel.defaultModel, modelList.textModels) || defaultTextModel;
+    return {
+        ...publicSettings,
+        modelChannel: {
+            ...modelChannel,
+            availableModels: modelList.models,
+            defaultModel,
+            defaultTextModel,
+            defaultImageModel,
+            defaultVideoModel,
+        },
+    };
 }
 
 export function useEffectiveConfig() {

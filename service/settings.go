@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -28,7 +27,9 @@ func PublicSettings() (model.PublicSetting, error) {
 
 func AdminSettings() (model.Settings, error) {
 	settings, err := repository.GetSettings()
-	return hidePrivateAPIKeys(normalizeSettings(settings)), err
+	normalized := normalizeSettings(settings)
+	normalized.Public = applyCanvasIntegrationPublicSetting(normalized.Public)
+	return hidePrivateAPIKeys(normalized), err
 }
 
 func SaveSettings(settings model.Settings) (model.Settings, error) {
@@ -120,89 +121,10 @@ func applyCanvasIntegrationPublicSetting(setting model.PublicSetting) model.Publ
 		disabled := false
 		setting.ModelChannel.AllowCustomChannel = &disabled
 	}
-
-	catalogModels, err := fetchTopAIModelCatalogModels()
-	if err != nil {
-		log.Printf("fetch TOP-AI model catalog failed: %v", err)
-	}
-	if len(catalogModels) > 0 {
-		setting.ModelChannel.AvailableModels = catalogModels
-		setting.ModelChannel.DefaultTextModel = repairDefaultModel(setting.ModelChannel.DefaultTextModel, catalogModels, isTextModelName)
-		setting.ModelChannel.DefaultImageModel = repairDefaultModel(setting.ModelChannel.DefaultImageModel, catalogModels, isImageModelName)
-		setting.ModelChannel.DefaultVideoModel = repairDefaultModel(setting.ModelChannel.DefaultVideoModel, catalogModels, isVideoModelName)
-		setting.ModelChannel.DefaultModel = repairDefaultModel(setting.ModelChannel.DefaultModel, catalogModels, isTextModelName)
-	}
 	if config.Cfg.CanvasDisableLocalCredits {
 		setting.ModelChannel.ModelCosts = []model.ModelCost{}
 	}
 	return setting
-}
-
-type topAIModelCatalogEnvelope struct {
-	Code    int             `json:"code"`
-	Success *bool           `json:"success"`
-	Data    json.RawMessage `json:"data"`
-	Message string          `json:"message"`
-	Msg     string          `json:"msg"`
-}
-
-type topAIModelCatalogItem struct {
-	Name   string `json:"name"`
-	Status string `json:"status"`
-}
-
-func fetchTopAIModelCatalogModels() ([]string, error) {
-	endpoint := topAIModelCatalogEndpoint()
-	if endpoint == "" {
-		return nil, nil
-	}
-	request, err := http.NewRequest(http.MethodGet, endpoint, nil)
-	if err != nil {
-		return nil, err
-	}
-	request.Header.Set("Accept", "application/json")
-	request.Header.Set("X-Canvas-Source", "infinite-canvas")
-	response, err := topAIHTTPClient.Do(request)
-	if err != nil {
-		return nil, err
-	}
-	defer response.Body.Close()
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, fmt.Errorf("TOP-AI model catalog status %d", response.StatusCode)
-	}
-	var envelope topAIModelCatalogEnvelope
-	if err := json.NewDecoder(response.Body).Decode(&envelope); err != nil {
-		return nil, err
-	}
-	if envelope.Success != nil && !*envelope.Success {
-		return nil, safeMessageError{message: firstNonEmpty(envelope.Message, envelope.Msg, "TOP-AI 模型目录不可用")}
-	}
-	if envelope.Success == nil && envelope.Code != 0 {
-		return nil, safeMessageError{message: firstNonEmpty(envelope.Message, envelope.Msg, "TOP-AI 模型目录不可用")}
-	}
-	var items []topAIModelCatalogItem
-	if err := json.Unmarshal(envelope.Data, &items); err != nil {
-		return nil, err
-	}
-	models := make([]string, 0, len(items))
-	for _, item := range items {
-		if strings.TrimSpace(item.Status) != "" && !strings.EqualFold(item.Status, "available") {
-			continue
-		}
-		models = append(models, item.Name)
-	}
-	return uniqueModelNames(models), nil
-}
-
-func topAIModelCatalogEndpoint() string {
-	if endpoint := strings.TrimSpace(config.Cfg.TopAIModelCatalogURL); endpoint != "" {
-		return endpoint
-	}
-	base := firstNonEmpty(config.Cfg.TopAIInternalBaseURL, config.Cfg.TopAIPublicBaseURL)
-	if strings.TrimSpace(base) == "" {
-		return ""
-	}
-	return strings.TrimRight(base, "/") + "/api/v1/public/models/catalog"
 }
 
 func ModelCost(modelName string) (int, error) {
@@ -382,16 +304,21 @@ func repairDefaultModel(current string, models []string, preferred func(string) 
 
 func isVideoModelName(modelName string) bool {
 	name := strings.ToLower(strings.TrimSpace(modelName))
-	return strings.Contains(name, "seedance") || strings.Contains(name, "video")
+	return strings.Contains(name, "seedance") || strings.Contains(name, "video") || strings.Contains(name, "sora") || strings.Contains(name, "veo") || strings.Contains(name, "kling") || strings.Contains(name, "wan") || strings.Contains(name, "hailuo")
 }
 
 func isImageModelName(modelName string) bool {
 	name := strings.ToLower(strings.TrimSpace(modelName))
-	return strings.Contains(name, "seedream") || strings.Contains(name, "gpt-image") || strings.Contains(name, "image")
+	return !isVideoModelName(modelName) && !isAudioModelName(modelName) && (strings.Contains(name, "seedream") || strings.Contains(name, "gpt-image") || strings.Contains(name, "image") || strings.Contains(name, "dall-e") || strings.Contains(name, "dalle") || strings.Contains(name, "imagen") || strings.Contains(name, "flux") || strings.Contains(name, "sdxl") || strings.Contains(name, "stable-diffusion") || strings.Contains(name, "midjourney"))
+}
+
+func isAudioModelName(modelName string) bool {
+	name := strings.ToLower(strings.TrimSpace(modelName))
+	return strings.Contains(name, "audio") || strings.Contains(name, "tts") || strings.Contains(name, "speech") || strings.Contains(name, "voice") || strings.Contains(name, "music") || strings.Contains(name, "sound")
 }
 
 func isTextModelName(modelName string) bool {
-	return !isImageModelName(modelName) && !isVideoModelName(modelName)
+	return !isImageModelName(modelName) && !isVideoModelName(modelName) && !isAudioModelName(modelName)
 }
 
 func normalizeModelChannel(channel model.ModelChannel) model.ModelChannel {

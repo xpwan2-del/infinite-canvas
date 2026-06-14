@@ -15,6 +15,7 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     const pathname = usePathname();
     const hydrateUser = useUserStore((state) => state.hydrateUser);
     const loadPublicSettings = useConfigStore((state) => state.loadPublicSettings);
+    const loadTopAIModels = useConfigStore((state) => state.loadTopAIModels);
     const publicSettings = useConfigStore((state) => state.publicSettings);
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
@@ -27,10 +28,18 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
 
     useEffect(() => {
         if (isLoginPage) return;
-        void hydrateUser().then(() => {
+        void hydrateUser().then(async () => {
             if (!useUserStore.getState().user) redirectToTopAILogin();
+            else {
+                try {
+                    await loadPublicSettings();
+                    await loadTopAIModels(useUserStore.getState().token);
+                } catch (error) {
+                    message.error(error instanceof Error ? error.message : "读取 TOP-AI 模型失败");
+                }
+            }
         });
-    }, [hydrateUser, isLoginPage]);
+    }, [hydrateUser, isLoginPage, loadPublicSettings, loadTopAIModels, message]);
 
     useEffect(() => {
         if (handledConfigParams.current) return;

@@ -39,6 +39,7 @@ func BuildTopAIGatewayRequest(ctx context.Context, user model.AuthUser, method s
 	}
 	request.Header.Set("Authorization", "Bearer "+apiKey)
 	request.Header.Set("Accept", "application/json")
+	request.Header.Set("User-Agent", "infinite-canvas/source=canvas")
 	request.Header.Set("X-Canvas-Source", "infinite-canvas")
 	request.Header.Set("X-Client-Request-ID", "canvas-"+uuid.NewString())
 	request.Header.Set("X-Top-AI-User-ID", topAIUserIDForCanvasUser(user))

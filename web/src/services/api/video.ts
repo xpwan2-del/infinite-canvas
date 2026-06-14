@@ -106,6 +106,8 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask):
         const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), params: config.channelMode === "remote" ? { model: task.model } : undefined })).data);
         if (video.status === "completed") {
             const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), params: config.channelMode === "remote" ? { model: task.model } : undefined, responseType: "blob" });
+            const mediaUrl = String(content.headers["x-canvas-media-url"] || "");
+            if (mediaUrl) return { status: "completed", result: { url: mediaUrl, mimeType: String(content.headers["content-type"] || "video/mp4") } };
             await assertVideoBlob(content.data);
             refreshRemoteUser(config);
             return { status: "completed", result: { blob: content.data } };
