@@ -78,7 +78,14 @@ export async function pollVideoGenerationTask(config: AiConfig, task: VideoGener
 
 export async function storeGeneratedVideo(result: VideoGenerationResult): Promise<UploadedFile> {
     if (result.blob) return uploadMediaFile(result.blob, "video");
-    if (result.url) return { url: result.url, storageKey: "", bytes: 0, mimeType: result.mimeType || "video/mp4" };
+    if (result.url) {
+        const token = useUserStore.getState().token;
+        if (token && isPublicMediaUrl(result.url)) {
+            const stored = await importGeneratedMedia(result.url, result.mimeType || "video/mp4");
+            return { url: stored.url, storageKey: "", bytes: stored.bytes, mimeType: stored.mimeType || result.mimeType || "video/mp4" };
+        }
+        return { url: result.url, storageKey: "", bytes: 0, mimeType: result.mimeType || "video/mp4" };
+    }
     throw new Error("视频接口没有返回可播放的视频");
 }
 
@@ -250,6 +257,19 @@ async function uploadReferenceMedia(file: File) {
     const payload = unwrapEnvelope(response.data, "参考素材上传失败");
     if (!payload.url) throw new Error("参考素材上传后没有返回公网 URL");
     return payload.url;
+}
+
+async function importGeneratedMedia(url: string, mimeType: string) {
+    const token = useUserStore.getState().token;
+    if (!token) throw new Error("保存生成视频需要先登录");
+    try {
+        const response = await axios.post<ApiEnvelope<ReferenceMediaUploadResponse>>(withBasePath("/api/v1/media/generated"), { url, mimeType }, { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } });
+        const payload = unwrapEnvelope(response.data, "生成视频保存失败");
+        if (!payload.url) throw new Error("生成视频保存后没有返回公网 URL");
+        return payload;
+    } catch (error) {
+        throw new Error(readAxiosError(error, "生成视频保存失败"));
+    }
 }
 
 async function videoResultFromUrl(url: string): Promise<VideoGenerationResult> {

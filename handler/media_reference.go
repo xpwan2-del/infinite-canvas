@@ -1,10 +1,17 @@
 package handler
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"log"
+	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/basketikun/infinite-canvas/service"
 )
@@ -14,11 +21,17 @@ const (
 	referenceImageMaxBytes    = 30 << 20
 	referenceVideoMaxBytes    = 50 << 20
 	referenceAudioMaxBytes    = 15 << 20
+	generatedVideoMaxBytes    = 120 << 20
 	referenceImageAllowedText = "jpeg/png/webp/bmp/gif/heic/heif 图片"
 	referenceVideoAllowedText = "mp4/mov 视频"
 	referenceAudioAllowedText = "mp3/wav 音频"
 	referenceMediaAllowedText = referenceImageAllowedText + "、" + referenceVideoAllowedText + "或" + referenceAudioAllowedText
 )
+
+type generatedMediaImportRequest struct {
+	URL      string `json:"url"`
+	MimeType string `json:"mimeType"`
+}
 
 func UploadReferenceMedia(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, referenceMediaMaxBytes+1)
@@ -49,6 +62,65 @@ func UploadReferenceMedia(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		Fail(w, referenceMediaSaveMessage(err, mimeType))
+		return
+	}
+	OK(w, result)
+}
+
+func ImportGeneratedMedia(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	var payload generatedMediaImportRequest
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		Fail(w, "生成视频保存请求格式不正确")
+		return
+	}
+	mediaURL := strings.TrimSpace(payload.URL)
+	if !safeRemoteMediaURL(r.Context(), mediaURL) {
+		Fail(w, "生成视频地址不安全或不可访问")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, mediaURL, nil)
+	if err != nil {
+		Fail(w, "生成视频地址不正确")
+		return
+	}
+	request.Header.Set("User-Agent", "TOP-AI-Canvas/1.0")
+	client := &http.Client{
+		Timeout: 90 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 || !safeRemoteMediaURL(req.Context(), req.URL.String()) {
+				return http.ErrUseLastResponse
+			}
+			return nil
+		},
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		log.Printf("import generated media failed: url=%s err=%v", mediaURL, err)
+		Fail(w, "生成视频下载失败")
+		return
+	}
+	defer response.Body.Close()
+	if response.StatusCode >= http.StatusBadRequest {
+		Fail(w, "生成视频下载失败")
+		return
+	}
+	contentType, ext, ok := normalizeGeneratedVideoType(response.Header.Get("Content-Type"), payload.MimeType, filepath.Ext(request.URL.Path))
+	if !ok {
+		Fail(w, "生成视频格式不支持，请使用 mp4/mov/webm 视频")
+		return
+	}
+	result, err := service.SaveGeneratedMedia(r.Context(), service.ReferenceMediaUploadInput{
+		Reader:   io.LimitReader(response.Body, generatedVideoMaxBytes+1),
+		MimeType: contentType,
+		Ext:      ext,
+		MaxBytes: generatedVideoMaxBytes,
+	})
+	if err != nil {
+		log.Printf("save imported generated media failed: url=%s err=%v", mediaURL, err)
+		Fail(w, generatedMediaSaveMessage(err))
 		return
 	}
 	OK(w, result)
@@ -100,6 +172,27 @@ func normalizeReferenceMediaType(contentType string, ext string) (string, string
 	}
 	if mimeType := mimeTypeByReferenceMediaExt(ext); mimeType != "" {
 		return mimeType, ext, true
+	}
+	return "", "", false
+}
+
+func normalizeGeneratedVideoType(contentTypes ...string) (string, string, bool) {
+	for _, contentType := range contentTypes {
+		contentType = strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
+		switch contentType {
+		case "video/mp4":
+			return contentType, ".mp4", true
+		case "video/quicktime", "video/mov":
+			return "video/quicktime", ".mov", true
+		case "video/webm":
+			return contentType, ".webm", true
+		case ".mp4":
+			return "video/mp4", ".mp4", true
+		case ".mov":
+			return "video/quicktime", ".mov", true
+		case ".webm":
+			return "video/webm", ".webm", true
+		}
 	}
 	return "", "", false
 }
@@ -186,4 +279,50 @@ func referenceMediaSizeMessage(mimeType string) string {
 		return "参考音频超过大小限制，请使用 15MB 以内的 mp3/wav 音频"
 	}
 	return "参考素材超过大小限制"
+}
+
+func generatedMediaSaveMessage(err error) string {
+	if errors.Is(err, service.ErrReferenceMediaEmpty) {
+		return "生成视频为空"
+	}
+	if errors.Is(err, service.ErrReferenceMediaTooLarge) {
+		return "生成视频超过大小限制，请联系管理员调整对象存储策略"
+	}
+	if errors.Is(err, service.ErrReferenceMediaStorageConfig) {
+		return "生成视频存储未配置，请检查 R2 服务端环境变量"
+	}
+	if errors.Is(err, service.ErrReferenceMediaUnsupportedDriver) {
+		return "生成视频存储驱动不支持"
+	}
+	return "生成视频保存失败"
+}
+
+func safeRemoteMediaURL(ctx context.Context, rawURL string) bool {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Hostname() == "" {
+		return false
+	}
+	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return false
+	}
+	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", parsed.Hostname())
+	if err != nil || len(ips) == 0 {
+		return false
+	}
+	for _, ip := range ips {
+		if !isPublicIP(ip) {
+			return false
+		}
+	}
+	return true
+}
+
+func isPublicIP(ip net.IP) bool {
+	return ip != nil &&
+		!ip.IsUnspecified() &&
+		!ip.IsLoopback() &&
+		!ip.IsPrivate() &&
+		!ip.IsLinkLocalMulticast() &&
+		!ip.IsLinkLocalUnicast() &&
+		!ip.IsMulticast()
 }

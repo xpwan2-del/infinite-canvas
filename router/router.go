@@ -37,6 +37,7 @@ func New() *gin.Engine {
 	v1.POST("/videos", gin.WrapF(handler.AIVideos))
 	v1.GET("/models", gin.WrapF(handler.CanvasModels))
 	v1.POST("/media/references", gin.WrapF(handler.UploadReferenceMedia))
+	v1.POST("/media/generated", gin.WrapF(handler.ImportGeneratedMedia))
 	v1.GET("/videos/:id", func(c *gin.Context) {
 		handler.AIVideo(c.Writer, c.Request, c.Param("id"))
 	})
