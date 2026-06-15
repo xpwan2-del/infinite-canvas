@@ -30,6 +30,7 @@ type topAIUser struct {
 	ID          int64   `json:"id"`
 	Email       string  `json:"email"`
 	Username    string  `json:"username"`
+	Role        string  `json:"role"`
 	AvatarURL   string  `json:"avatar_url"`
 	Balance     float64 `json:"balance"`
 	Concurrency int     `json:"concurrency"`
@@ -61,6 +62,9 @@ func LoginWithTopAI(r *http.Request) (model.AuthSession, error) {
 	if !strings.EqualFold(profile.Status, "active") {
 		return model.AuthSession{}, safeMessageError{message: "TOP-AI 账号不可用"}
 	}
+	if !isTopAICanvasUserRole(profile.Role) {
+		return model.AuthSession{}, safeMessageError{message: "请使用普通用户账号进入画布"}
+	}
 
 	username := topAIUsername(profile.ID)
 	user, ok, err := repository.GetUserByUsername(username)
@@ -90,6 +94,7 @@ func LoginWithTopAI(r *http.Request) (model.AuthSession, error) {
 			"id":          profile.ID,
 			"email":       profile.Email,
 			"username":    profile.Username,
+			"role":        profile.Role,
 			"balance":     profile.Balance,
 			"concurrency": profile.Concurrency,
 			"status":      profile.Status,
@@ -156,4 +161,8 @@ func topAISessionEndpoint(r *http.Request) (string, error) {
 
 func topAIUsername(id int64) string {
 	return "topai-" + strconv.FormatInt(id, 10)
+}
+
+func isTopAICanvasUserRole(role string) bool {
+	return strings.EqualFold(strings.TrimSpace(role), "user")
 }

@@ -233,7 +233,22 @@ func CurrentAuthUser(tokenText string) (model.AuthUser, bool) {
 	if user.Status == model.UserStatusBan {
 		return model.AuthUser{}, false
 	}
+	if strings.HasPrefix(user.Username, "topai-") && !storedTopAICanvasUserRole(user.Extra) {
+		return model.AuthUser{}, false
+	}
 	return model.PublicUser(user), true
+}
+
+func storedTopAICanvasUserRole(extra string) bool {
+	var payload struct {
+		TopAI struct {
+			Role string `json:"role"`
+		} `json:"topAI"`
+	}
+	if err := json.Unmarshal([]byte(extra), &payload); err != nil {
+		return false
+	}
+	return isTopAICanvasUserRole(payload.TopAI.Role)
 }
 
 func ListUsers(q model.Query) (model.UserList, error) {
