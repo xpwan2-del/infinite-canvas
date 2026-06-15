@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -13,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/basketikun/infinite-canvas/config"
 	"github.com/basketikun/infinite-canvas/service"
 )
 
@@ -68,6 +70,10 @@ func UploadReferenceMedia(w http.ResponseWriter, r *http.Request) {
 }
 
 func ImportGeneratedMedia(w http.ResponseWriter, r *http.Request) {
+	userID := "unknown"
+	if user, ok := service.UserFromContext(r.Context()); ok {
+		userID = user.ID
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var payload generatedMediaImportRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -76,6 +82,7 @@ func ImportGeneratedMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	mediaURL := strings.TrimSpace(payload.URL)
 	if !safeRemoteMediaURL(r.Context(), mediaURL) {
+		log.Printf("blocked generated media import: user_id=%s source=%s", userID, safeLogMediaURL(mediaURL))
 		Fail(w, "生成视频地址不安全或不可访问")
 		return
 	}
@@ -88,7 +95,8 @@ func ImportGeneratedMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	request.Header.Set("User-Agent", "TOP-AI-Canvas/1.0")
 	client := &http.Client{
-		Timeout: 90 * time.Second,
+		Timeout:   90 * time.Second,
+		Transport: safeRemoteMediaTransport(),
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 || !safeRemoteMediaURL(req.Context(), req.URL.String()) {
 				return http.ErrUseLastResponse
@@ -98,7 +106,7 @@ func ImportGeneratedMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		log.Printf("import generated media failed: url=%s err=%v", mediaURL, err)
+		log.Printf("import generated media failed: user_id=%s source=%s err=%v", userID, safeLogMediaURL(mediaURL), err)
 		Fail(w, "生成视频下载失败")
 		return
 	}
@@ -119,11 +127,22 @@ func ImportGeneratedMedia(w http.ResponseWriter, r *http.Request) {
 		MaxBytes: generatedVideoMaxBytes,
 	})
 	if err != nil {
-		log.Printf("save imported generated media failed: url=%s err=%v", mediaURL, err)
+		log.Printf("save imported generated media failed: user_id=%s source=%s err=%v", userID, safeLogMediaURL(mediaURL), err)
 		Fail(w, generatedMediaSaveMessage(err))
 		return
 	}
+	log.Printf("imported generated media: user_id=%s source_host=%s bytes=%d object_id=%s", userID, request.URL.Hostname(), result.Bytes, result.ID)
 	OK(w, result)
+}
+
+func GeneratedMediaURL(w http.ResponseWriter, r *http.Request) {
+	storageKey := strings.TrimSpace(r.URL.Query().Get("key"))
+	mediaURL, err := service.GeneratedMediaURL(r.Context(), storageKey)
+	if err != nil {
+		Fail(w, "生成视频地址已失效或存储未配置")
+		return
+	}
+	OK(w, map[string]string{"url": mediaURL})
 }
 
 func referenceMediaSaveMessage(err error, mimeType string) string {
@@ -302,7 +321,10 @@ func safeRemoteMediaURL(ctx context.Context, rawURL string) bool {
 	if err != nil || parsed.Hostname() == "" {
 		return false
 	}
-	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+	if parsed.Scheme != "https" {
+		return false
+	}
+	if !isAllowedGeneratedMediaHost(parsed.Hostname()) {
 		return false
 	}
 	ips, err := net.DefaultResolver.LookupIP(ctx, "ip", parsed.Hostname())
@@ -315,6 +337,82 @@ func safeRemoteMediaURL(ctx context.Context, rawURL string) bool {
 		}
 	}
 	return true
+}
+
+func safeLogMediaURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Hostname() == "" {
+		return "invalid"
+	}
+	pathValue := parsed.EscapedPath()
+	if len(pathValue) > 96 {
+		pathValue = pathValue[:96] + "..."
+	}
+	return parsed.Scheme + "://" + parsed.Hostname() + pathValue
+}
+
+func safeRemoteMediaTransport() *http.Transport {
+	return &http.Transport{
+		DialContext: func(ctx context.Context, network string, address string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, err
+			}
+			if !isAllowedGeneratedMediaHost(host) {
+				return nil, fmt.Errorf("generated media host is not allowed: %s", host)
+			}
+			ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+			if err != nil {
+				return nil, err
+			}
+			var lastErr error
+			dialer := &net.Dialer{Timeout: 15 * time.Second}
+			for _, ip := range ips {
+				if !isPublicIP(ip) {
+					continue
+				}
+				conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+				if err == nil {
+					return conn, nil
+				}
+				lastErr = err
+			}
+			if lastErr != nil {
+				return nil, lastErr
+			}
+			return nil, fmt.Errorf("generated media host has no public IP: %s", host)
+		},
+	}
+}
+
+func isAllowedGeneratedMediaHost(host string) bool {
+	host = strings.Trim(strings.ToLower(host), ".")
+	if host == "" {
+		return false
+	}
+	for _, allowed := range splitHostAllowlist(config.Cfg.GeneratedMediaAllowedHosts) {
+		if hostMatchesAllowedHost(host, allowed) {
+			return true
+		}
+	}
+	return false
+}
+
+func splitHostAllowlist(raw string) []string {
+	parts := strings.Split(raw, ",")
+	values := make([]string, 0, len(parts))
+	for _, part := range parts {
+		value := strings.Trim(strings.ToLower(part), " .")
+		value = strings.TrimPrefix(value, "*.")
+		if value != "" {
+			values = append(values, value)
+		}
+	}
+	return values
+}
+
+func hostMatchesAllowedHost(host string, allowed string) bool {
+	return host == allowed || strings.HasSuffix(host, "."+allowed)
 }
 
 func isPublicIP(ip net.IP) bool {

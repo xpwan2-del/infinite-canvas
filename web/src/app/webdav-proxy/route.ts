@@ -117,7 +117,7 @@ function isAllowedHost(host: string) {
         .split(",")
         .map((item) => item.trim().toLowerCase())
         .filter(Boolean);
-    if (!values.length) return true;
+    if (!values.length) return process.env.NODE_ENV !== "production";
     return values.some((value) => host === value || host.endsWith("." + value.replace(/^\./, "")));
 }
 

@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -42,6 +43,43 @@ func TestReferenceMediaTypeMaxBytes(t *testing.T) {
 	}
 	if got := referenceMediaTypeMaxBytes("image/png"); got != referenceImageMaxBytes {
 		t.Fatalf("image max bytes = %d, want %d", got, referenceImageMaxBytes)
+	}
+}
+
+func TestGeneratedMediaHostAllowlist(t *testing.T) {
+	previous := config.Cfg
+	t.Cleanup(func() { config.Cfg = previous })
+	config.Cfg = config.Config{GeneratedMediaAllowedHosts: "media.example.com,*.cdn.example.com"}
+
+	if !isAllowedGeneratedMediaHost("media.example.com") {
+		t.Fatal("expected exact host to be allowed")
+	}
+	if !isAllowedGeneratedMediaHost("video.cdn.example.com") {
+		t.Fatal("expected subdomain host to be allowed")
+	}
+	if isAllowedGeneratedMediaHost("evil-example.com") {
+		t.Fatal("expected unrelated host to be rejected")
+	}
+}
+
+func TestSafeRemoteMediaURLRejectsNonHTTPSAndMissingAllowlist(t *testing.T) {
+	previous := config.Cfg
+	t.Cleanup(func() { config.Cfg = previous })
+	config.Cfg = config.Config{GeneratedMediaAllowedHosts: "media.example.com"}
+
+	if safeRemoteMediaURL(context.Background(), "http://media.example.com/video.mp4") {
+		t.Fatal("expected http generated media URL to be rejected")
+	}
+	config.Cfg.GeneratedMediaAllowedHosts = ""
+	if safeRemoteMediaURL(context.Background(), "https://media.example.com/video.mp4") {
+		t.Fatal("expected generated media URL to be rejected without allowlist")
+	}
+}
+
+func TestSafeLogMediaURLStripsQuery(t *testing.T) {
+	got := safeLogMediaURL("https://media.example.com/generated/video.mp4?X-Amz-Signature=secret#token")
+	if got != "https://media.example.com/generated/video.mp4" {
+		t.Fatalf("safeLogMediaURL = %q", got)
 	}
 }
 

@@ -33,10 +33,15 @@ type userExtra struct {
 }
 
 func EnsureDefaultAdmin() error {
+	if config.Cfg.CanvasDisableLocalAuth || config.Cfg.CanvasForceTopAIGateway {
+		return nil
+	}
 	if strings.TrimSpace(config.Cfg.AdminUsername) == "" || strings.TrimSpace(config.Cfg.AdminPassword) == "" {
 		return nil
 	}
-	WarnDefaultSecurityConfig()
+	if isDefaultAdminCredential() {
+		return errors.New("default canvas admin credentials are not allowed; set ADMIN_USERNAME and ADMIN_PASSWORD or disable local auth")
+	}
 	hasAdmin, err := repository.HasAdmin()
 	if err != nil || hasAdmin {
 		return err
@@ -584,7 +589,11 @@ func firstNonEmpty(values ...string) string {
 }
 
 func WarnDefaultSecurityConfig() {
-	if config.Cfg.AdminUsername == "admin" && config.Cfg.AdminPassword == "infinite-canvas" {
+	if isDefaultAdminCredential() {
 		log.Println("WARNING: using default admin credentials, please set ADMIN_USERNAME and ADMIN_PASSWORD to safer values before deployment")
 	}
+}
+
+func isDefaultAdminCredential() bool {
+	return strings.TrimSpace(config.Cfg.AdminUsername) == "admin" && config.Cfg.AdminPassword == "infinite-canvas"
 }

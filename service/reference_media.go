@@ -10,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/credentials"
@@ -33,10 +34,11 @@ type ReferenceMediaUploadInput struct {
 }
 
 type ReferenceMediaUploadResult struct {
-	ID       string `json:"id"`
-	URL      string `json:"url"`
-	MimeType string `json:"mimeType"`
-	Bytes    int64  `json:"bytes"`
+	ID         string `json:"id"`
+	URL        string `json:"url"`
+	StorageKey string `json:"storageKey,omitempty"`
+	MimeType   string `json:"mimeType"`
+	Bytes      int64  `json:"bytes"`
 }
 
 func SaveReferenceMedia(ctx context.Context, input ReferenceMediaUploadInput) (ReferenceMediaUploadResult, error) {
@@ -104,7 +106,9 @@ func saveLocalReferenceMedia(id string, input ReferenceMediaUploadInput) (Refere
 }
 
 func saveR2ReferenceMedia(ctx context.Context, id string, input ReferenceMediaUploadInput) (ReferenceMediaUploadResult, error) {
-	return saveR2Media(ctx, cleanR2Prefix(config.Cfg.R2TempReferencePrefix), id, input)
+	result, err := saveR2Media(ctx, cleanR2Prefix(config.Cfg.R2TempReferencePrefix), id, input, 0)
+	result.StorageKey = ""
+	return result, err
 }
 
 func SaveGeneratedMedia(ctx context.Context, input ReferenceMediaUploadInput) (ReferenceMediaUploadResult, error) {
@@ -116,16 +120,33 @@ func SaveGeneratedMedia(ctx context.Context, input ReferenceMediaUploadInput) (R
 		return ReferenceMediaUploadResult{}, ErrReferenceMediaUnsupportedDriver
 	}
 	id := uuid.NewString() + input.Ext
-	return saveR2Media(ctx, cleanR2PrefixOrDefault(config.Cfg.R2GeneratedPrefix, "generated"), id, input)
+	return saveR2Media(ctx, cleanR2PrefixOrDefault(config.Cfg.R2GeneratedPrefix, "generated"), id, input, time.Duration(config.Cfg.R2GeneratedSignedURLTTL)*time.Second)
 }
 
-func saveR2Media(ctx context.Context, prefix string, id string, input ReferenceMediaUploadInput) (ReferenceMediaUploadResult, error) {
-	bucket := strings.TrimSpace(config.Cfg.R2Bucket)
-	endpoint := strings.TrimRight(strings.TrimSpace(config.Cfg.R2Endpoint), "/")
-	publicBaseURL := strings.TrimRight(strings.TrimSpace(config.Cfg.R2PublicBaseURL), "/")
-	accessKeyID := strings.TrimSpace(config.Cfg.R2AccessKeyID)
-	secretAccessKey := strings.TrimSpace(config.Cfg.R2SecretAccessKey)
-	if bucket == "" || endpoint == "" || publicBaseURL == "" || accessKeyID == "" || secretAccessKey == "" {
+func GeneratedMediaURL(ctx context.Context, storageKey string) (string, error) {
+	key, ok := parseGeneratedMediaStorageKey(storageKey)
+	if !ok {
+		return "", ErrReferenceMediaStorageConfig
+	}
+	client, bucket, publicBaseURL, err := r2Client()
+	if err != nil {
+		return "", err
+	}
+	if ttl := time.Duration(config.Cfg.R2GeneratedSignedURLTTL) * time.Second; ttl > 0 {
+		return presignR2GetObject(ctx, client, bucket, key, ttl)
+	}
+	if publicBaseURL == "" {
+		return "", ErrReferenceMediaStorageConfig
+	}
+	return joinPublicURL(publicBaseURL, key), nil
+}
+
+func saveR2Media(ctx context.Context, prefix string, id string, input ReferenceMediaUploadInput, signedURLTTL time.Duration) (ReferenceMediaUploadResult, error) {
+	client, bucket, publicBaseURL, err := r2Client()
+	if err != nil {
+		return ReferenceMediaUploadResult{}, err
+	}
+	if signedURLTTL <= 0 && publicBaseURL == "" {
 		return ReferenceMediaUploadResult{}, ErrReferenceMediaStorageConfig
 	}
 	tempFile, bytes, err := spoolLimited(input.Reader, input.MaxBytes)
@@ -141,6 +162,40 @@ func saveR2Media(ctx context.Context, prefix string, id string, input ReferenceM
 		return ReferenceMediaUploadResult{}, ErrReferenceMediaEmpty
 	}
 	key := path.Join(prefix, id)
+	if _, err := client.PutObject(ctx, &s3.PutObjectInput{
+		Bucket:      aws.String(bucket),
+		Key:         aws.String(key),
+		Body:        tempFile,
+		ContentType: aws.String(input.MimeType),
+	}); err != nil {
+		return ReferenceMediaUploadResult{}, err
+	}
+	mediaURL := joinPublicURL(publicBaseURL, key)
+	if signedURLTTL > 0 {
+		signedURL, err := presignR2GetObject(ctx, client, bucket, key, signedURLTTL)
+		if err != nil {
+			return ReferenceMediaUploadResult{}, err
+		}
+		mediaURL = signedURL
+	}
+	return ReferenceMediaUploadResult{
+		ID:         id,
+		URL:        mediaURL,
+		StorageKey: generatedMediaStorageKey(key),
+		MimeType:   input.MimeType,
+		Bytes:      bytes,
+	}, nil
+}
+
+func r2Client() (*s3.Client, string, string, error) {
+	bucket := strings.TrimSpace(config.Cfg.R2Bucket)
+	endpoint := strings.TrimRight(strings.TrimSpace(config.Cfg.R2Endpoint), "/")
+	publicBaseURL := strings.TrimRight(strings.TrimSpace(config.Cfg.R2PublicBaseURL), "/")
+	accessKeyID := strings.TrimSpace(config.Cfg.R2AccessKeyID)
+	secretAccessKey := strings.TrimSpace(config.Cfg.R2SecretAccessKey)
+	if bucket == "" || endpoint == "" || accessKeyID == "" || secretAccessKey == "" {
+		return nil, "", "", ErrReferenceMediaStorageConfig
+	}
 	region := strings.TrimSpace(config.Cfg.R2Region)
 	if region == "" {
 		region = "auto"
@@ -157,20 +212,21 @@ func saveR2Media(ctx context.Context, prefix string, id string, input ReferenceM
 	}, func(options *s3.Options) {
 		options.UsePathStyle = true
 	})
-	if _, err := client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(bucket),
-		Key:         aws.String(key),
-		Body:        tempFile,
-		ContentType: aws.String(input.MimeType),
-	}); err != nil {
-		return ReferenceMediaUploadResult{}, err
+	return client, bucket, publicBaseURL, nil
+}
+
+func presignR2GetObject(ctx context.Context, client *s3.Client, bucket string, key string, ttl time.Duration) (string, error) {
+	presigner := s3.NewPresignClient(client)
+	output, err := presigner.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(bucket),
+		Key:    aws.String(key),
+	}, func(options *s3.PresignOptions) {
+		options.Expires = ttl
+	})
+	if err != nil {
+		return "", err
 	}
-	return ReferenceMediaUploadResult{
-		ID:       id,
-		URL:      joinPublicURL(publicBaseURL, key),
-		MimeType: input.MimeType,
-		Bytes:    bytes,
-	}, nil
+	return output.URL, nil
 }
 
 func copyLimited(dst io.Writer, src io.Reader, maxBytes int64) (int64, error) {
@@ -216,6 +272,23 @@ func cleanR2PrefixOrDefault(prefix string, fallback string) string {
 		return fallback
 	}
 	return prefix
+}
+
+func generatedMediaStorageKey(key string) string {
+	return "r2:" + strings.TrimLeft(key, "/")
+}
+
+func parseGeneratedMediaStorageKey(storageKey string) (string, bool) {
+	key := strings.TrimPrefix(strings.TrimSpace(storageKey), "r2:")
+	key = strings.TrimLeft(path.Clean("/"+key), "/")
+	if key == "." || key == "" || strings.Contains(key, "\\") {
+		return "", false
+	}
+	prefix := cleanR2PrefixOrDefault(config.Cfg.R2GeneratedPrefix, "generated")
+	if key != prefix && !strings.HasPrefix(key, prefix+"/") {
+		return "", false
+	}
+	return key, true
 }
 
 func joinPublicURL(baseURL string, key string) string {

@@ -230,6 +230,9 @@ func copyAIGeneratedVideoContentResponse(w http.ResponseWriter, request *http.Re
 		log.Printf("save generated video to R2 failed: err=%v", err)
 	} else if result.URL != "" {
 		w.Header().Set("X-Canvas-Media-URL", result.URL)
+		if result.StorageKey != "" {
+			w.Header().Set("X-Canvas-Media-Storage-Key", result.StorageKey)
+		}
 	}
 	for key, values := range response.Header {
 		if strings.EqualFold(key, "Content-Length") {

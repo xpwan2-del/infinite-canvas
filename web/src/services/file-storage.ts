@@ -1,7 +1,11 @@
 "use client";
 
+import axios from "axios";
 import localforage from "localforage";
 import { nanoid } from "nanoid";
+
+import { withBasePath } from "@/lib/base-path";
+import { useUserStore } from "@/stores/use-user-store";
 
 export type UploadedFile = { url: string; storageKey: string; bytes: number; mimeType: string; width?: number; height?: number; durationMs?: number };
 
@@ -20,6 +24,7 @@ export async function uploadMediaFile(input: string | Blob, prefix = "file"): Pr
 
 export async function resolveMediaUrl(storageKey?: string, fallback = "") {
     if (!storageKey) return fallback;
+    if (isRemoteR2MediaKey(storageKey)) return resolveRemoteR2MediaUrl(storageKey, fallback);
     const cached = objectUrls.get(storageKey);
     if (cached) return cached;
     const blob = await store.getItem<Blob>(storageKey);
@@ -27,6 +32,26 @@ export async function resolveMediaUrl(storageKey?: string, fallback = "") {
     const url = URL.createObjectURL(blob);
     objectUrls.set(storageKey, url);
     return url;
+}
+
+async function resolveRemoteR2MediaUrl(storageKey: string, fallback: string) {
+    const token = useUserStore.getState().token;
+    if (!token) return fallback;
+    try {
+        const response = await axios.get<{ code?: number; data?: { url?: string } | null; msg?: string } | { url?: string }>(withBasePath("/api/v1/media/generated"), {
+            headers: { Authorization: `Bearer ${token}` },
+            params: { key: storageKey },
+        });
+        const payload = response.data;
+        if ("code" in payload && typeof payload.code === "number") return payload.code === 0 ? payload.data?.url || fallback : fallback;
+        return "url" in payload ? payload.url || fallback : fallback;
+    } catch {
+        return fallback;
+    }
+}
+
+function isRemoteR2MediaKey(storageKey: string) {
+    return storageKey.startsWith("r2:generated/");
 }
 
 export async function getMediaBlob(storageKey: string) {

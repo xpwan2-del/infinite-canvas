@@ -19,9 +19,9 @@ type SeedanceTask = {
     content?: { video_url?: string; last_frame_url?: string } | null;
 };
 type ApiEnvelope<T> = T | { code?: number; data?: T | null; msg?: string };
-type ReferenceMediaUploadResponse = { id: string; url: string; mimeType: string; bytes: number };
+type ReferenceMediaUploadResponse = { id: string; url: string; storageKey?: string; mimeType: string; bytes: number };
 
-export type VideoGenerationResult = { blob?: Blob; url?: string; mimeType?: string };
+export type VideoGenerationResult = { blob?: Blob; url?: string; storageKey?: string; mimeType?: string };
 export type VideoGenerationTask = { id: string; provider: "openai" | "seedance"; model: string };
 export type VideoGenerationTaskState = { status: "pending" } | { status: "completed"; result: VideoGenerationResult } | { status: "failed"; error: string };
 
@@ -80,9 +80,12 @@ export async function storeGeneratedVideo(result: VideoGenerationResult): Promis
     if (result.blob) return uploadMediaFile(result.blob, "video");
     if (result.url) {
         const token = useUserStore.getState().token;
+        if (result.storageKey) {
+            return { url: result.url, storageKey: result.storageKey, bytes: 0, mimeType: result.mimeType || "video/mp4" };
+        }
         if (token && isPublicMediaUrl(result.url)) {
             const stored = await importGeneratedMedia(result.url, result.mimeType || "video/mp4");
-            return { url: stored.url, storageKey: "", bytes: stored.bytes, mimeType: stored.mimeType || result.mimeType || "video/mp4" };
+            return { url: stored.url, storageKey: stored.storageKey || "", bytes: stored.bytes, mimeType: stored.mimeType || result.mimeType || "video/mp4" };
         }
         return { url: result.url, storageKey: "", bytes: 0, mimeType: result.mimeType || "video/mp4" };
     }
@@ -119,7 +122,8 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask):
             }
             const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), params: config.channelMode === "remote" ? { model: task.model } : undefined, responseType: "blob" });
             const mediaUrl = String(content.headers["x-canvas-media-url"] || "");
-            if (mediaUrl) return { status: "completed", result: { url: mediaUrl, mimeType: String(content.headers["content-type"] || "video/mp4") } };
+            const storageKey = String(content.headers["x-canvas-media-storage-key"] || "");
+            if (mediaUrl) return { status: "completed", result: { url: mediaUrl, storageKey, mimeType: String(content.headers["content-type"] || "video/mp4") } };
             await assertVideoBlob(content.data);
             refreshRemoteUser(config);
             return { status: "completed", result: { blob: content.data } };

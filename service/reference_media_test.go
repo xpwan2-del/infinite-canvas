@@ -68,3 +68,20 @@ func TestJoinPublicURL(t *testing.T) {
 		t.Fatalf("joinPublicURL = %q", got)
 	}
 }
+
+func TestParseGeneratedMediaStorageKey(t *testing.T) {
+	previous := config.Cfg
+	t.Cleanup(func() { config.Cfg = previous })
+	config.Cfg = config.Config{R2GeneratedPrefix: "generated"}
+
+	key, ok := parseGeneratedMediaStorageKey("r2:generated/video.mp4")
+	if !ok || key != "generated/video.mp4" {
+		t.Fatalf("parseGeneratedMediaStorageKey = (%q, %v), want generated/video.mp4 true", key, ok)
+	}
+	if _, ok := parseGeneratedMediaStorageKey("r2:temp/reference/video.mp4"); ok {
+		t.Fatal("expected temp reference key to be rejected")
+	}
+	if _, ok := parseGeneratedMediaStorageKey("r2:generated/../secret.mp4"); ok {
+		t.Fatal("expected path traversal key to be rejected")
+	}
+}

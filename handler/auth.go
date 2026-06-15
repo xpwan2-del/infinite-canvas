@@ -93,6 +93,10 @@ func LinuxDoCallback(w http.ResponseWriter, r *http.Request) {
 }
 
 func AdminLogin(w http.ResponseWriter, r *http.Request) {
+	if config.Cfg.CanvasDisableLocalAuth || config.Cfg.CanvasForceTopAIGateway {
+		Fail(w, "本地管理员登录已禁用，请通过 TOP-AI 登录")
+		return
+	}
 	var request loginRequest
 	_ = json.NewDecoder(r.Body).Decode(&request)
 	session, err := service.Login(request.Username, request.Password)
