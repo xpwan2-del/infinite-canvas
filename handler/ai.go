@@ -10,6 +10,8 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -212,17 +214,23 @@ func copyAIGeneratedVideoContentResponse(w http.ResponseWriter, request *http.Re
 		contentType = "video/mp4"
 	}
 	maxBytes := aiRequestMaxBytes()
-	body, err := io.ReadAll(io.LimitReader(response.Body, maxBytes+1))
+	videoFile, videoBytes, err := spoolAIGeneratedVideo(response.Body, maxBytes)
 	if err != nil {
+		if errors.Is(err, errAIGeneratedVideoTooLarge) {
+			Fail(w, "视频内容过大，请联系管理员调整对象存储策略")
+			return
+		}
 		Fail(w, "视频内容读取失败")
 		return
 	}
-	if int64(len(body)) > maxBytes {
-		Fail(w, "视频内容过大，请联系管理员调整对象存储策略")
+	defer removeTempFile(videoFile)
+
+	if _, err := videoFile.Seek(0, io.SeekStart); err != nil {
+		Fail(w, "视频内容读取失败")
 		return
 	}
 	if result, err := service.SaveGeneratedMedia(request.Context(), service.ReferenceMediaUploadInput{
-		Reader:   bytes.NewReader(body),
+		Reader:   videoFile,
 		MimeType: contentType,
 		Ext:      generatedVideoExt(contentType),
 		MaxBytes: maxBytes,
@@ -234,6 +242,10 @@ func copyAIGeneratedVideoContentResponse(w http.ResponseWriter, request *http.Re
 			w.Header().Set("X-Canvas-Media-Storage-Key", result.StorageKey)
 		}
 	}
+	if _, err := videoFile.Seek(0, io.SeekStart); err != nil {
+		Fail(w, "视频内容读取失败")
+		return
+	}
 	for key, values := range response.Header {
 		if strings.EqualFold(key, "Content-Length") {
 			continue
@@ -243,8 +255,38 @@ func copyAIGeneratedVideoContentResponse(w http.ResponseWriter, request *http.Re
 		}
 	}
 	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Length", strconv.FormatInt(videoBytes, 10))
 	w.WriteHeader(response.StatusCode)
-	_, _ = w.Write(body)
+	_, _ = io.Copy(w, videoFile)
+}
+
+var errAIGeneratedVideoTooLarge = errors.New("generated video too large")
+
+func spoolAIGeneratedVideo(src io.Reader, maxBytes int64) (*os.File, int64, error) {
+	tempFile, err := os.CreateTemp("", "top-ai-generated-video-*")
+	if err != nil {
+		return nil, 0, err
+	}
+
+	written, err := io.Copy(tempFile, io.LimitReader(src, maxBytes+1))
+	if err != nil {
+		removeTempFile(tempFile)
+		return nil, written, err
+	}
+	if written > maxBytes {
+		removeTempFile(tempFile)
+		return nil, written, errAIGeneratedVideoTooLarge
+	}
+	return tempFile, written, nil
+}
+
+func removeTempFile(file *os.File) {
+	if file == nil {
+		return
+	}
+	name := file.Name()
+	_ = file.Close()
+	_ = os.Remove(name)
 }
 
 func generatedVideoExt(contentType string) string {

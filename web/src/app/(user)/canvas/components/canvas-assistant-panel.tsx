@@ -141,7 +141,11 @@ export function CanvasAssistantPanel({ nodes, selectedNodeIds, sessions, activeS
     };
 
     const sendMessage = async (text: string, nextMode: AssistantMode, history: CanvasAssistantMessage[], savedReferences?: CanvasAssistantReference[]) => {
-        const requestConfig = { ...effectiveConfig, count: nextMode === "image" ? effectiveConfig.canvasImageCount || effectiveConfig.count : effectiveConfig.count, model: nextMode === "image" ? effectiveConfig.imageModel || effectiveConfig.model : effectiveConfig.textModel || effectiveConfig.model };
+        const requestConfig = {
+            ...effectiveConfig,
+            count: nextMode === "image" ? effectiveConfig.canvasImageCount || effectiveConfig.count : effectiveConfig.count,
+            model: nextMode === "image" ? effectiveConfig.imageModel || effectiveConfig.model : effectiveConfig.textModel || effectiveConfig.model,
+        };
         if (!isAiConfigReady(requestConfig, requestConfig.model)) {
             openConfigDialog(true);
             return;
@@ -432,19 +436,20 @@ function AssistantComposer({
                         {mode === "image" ? (
                             <>
                                 <ModelPicker className="h-8 shrink-0" config={config} value={config.imageModel || config.model} onChange={(model) => onConfigChange("imageModel", model)} capability="image" onMissingConfig={onMissingConfig} />
-                                <CanvasImageSettingsPopover config={config} placement="topRight" getPopupContainer={() => document.body} buttonClassName="canvas-composer-settings canvas-composer-icon !h-8 !min-w-8 !rounded-full !px-2" onConfigChange={onConfigChange} onMissingConfig={onMissingConfig} />
+                                <CanvasImageSettingsPopover
+                                    config={config}
+                                    placement="topRight"
+                                    getPopupContainer={() => document.body}
+                                    buttonClassName="canvas-composer-settings canvas-composer-icon !h-8 !min-w-8 !rounded-full !px-2"
+                                    onConfigChange={onConfigChange}
+                                    onMissingConfig={onMissingConfig}
+                                />
                             </>
                         ) : (
                             <ModelPicker className="h-8 shrink-0" config={config} value={config.textModel || config.model} onChange={(model) => onConfigChange("textModel", model)} capability="text" onMissingConfig={onMissingConfig} />
                         )}
                     </div>
-                    <Button
-                        type="primary"
-                        className="!h-10 !min-w-16 shrink-0 !rounded-full !px-3"
-                        disabled={isRunning || !prompt.trim()}
-                        onClick={() => void onSubmit()}
-                        aria-label="发送"
-                    >
+                    <Button type="primary" className="!h-10 !min-w-16 shrink-0 !rounded-full !px-3" disabled={isRunning || !prompt.trim()} onClick={() => void onSubmit()} aria-label="发送">
                         <span className="flex items-center gap-1.5">
                             <span className="inline-flex items-center gap-1 text-xs font-medium tabular-nums">
                                 {!hideLocalCredits ? (
