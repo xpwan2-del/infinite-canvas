@@ -73,6 +73,7 @@ export default function VideoPage() {
     const { message } = App.useApp();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const activeLogIdsRef = useRef<Set<string>>(new Set());
+    const autoSavedAssetKeysRef = useRef<Set<string>>(new Set());
     const config = useConfigStore((state) => state.config);
     const effectiveConfig = useEffectiveConfig();
     const updateConfig = useConfigStore((state) => state.updateConfig);
@@ -106,7 +107,7 @@ export default function VideoPage() {
     }, [running, startedAt]);
 
     useEffect(() => {
-        void refreshLogs();
+        void refreshLogs(true);
     }, []);
 
     const addReferences = async (files?: FileList | null) => {
@@ -229,6 +230,17 @@ export default function VideoPage() {
     };
 
     const saveResultToAssets = (video: GeneratedVideo) => {
+        if (!addVideoToAssets(video, prompt)) {
+            message.info("已在我的素材中");
+            return;
+        }
+        message.success("已加入我的素材");
+    };
+
+    const addVideoToAssets = (video: GeneratedVideo, sourcePrompt: string) => {
+        const assetKey = video.storageKey || video.url;
+        if (!assetKey || autoSavedAssetKeysRef.current.has(assetKey)) return false;
+        autoSavedAssetKeysRef.current.add(assetKey);
         addAsset({
             kind: "video",
             title: "生成视频",
@@ -236,9 +248,9 @@ export default function VideoPage() {
             tags: [],
             source: "视频创作台",
             data: { url: video.url, storageKey: video.storageKey, width: video.width, height: video.height, bytes: video.bytes, mimeType: video.mimeType },
-            metadata: { source: "video-page", prompt },
+            metadata: { source: "video-page", prompt: sourcePrompt },
         });
-        message.success("已加入我的素材");
+        return true;
     };
 
     const insertPickedAsset = async (payload: InsertAssetPayload) => {
@@ -270,7 +282,7 @@ export default function VideoPage() {
             .filter((log) => selectedLogIds.includes(log.id))
             .map((log) => log.video?.storageKey)
             .filter((key): key is string => Boolean(key));
-        void Promise.all([deleteStoredMedia(mediaKeys), ...selectedLogIds.map((id) => logStore.removeItem(id))]).then(refreshLogs);
+        void Promise.all([deleteStoredMedia(mediaKeys), ...selectedLogIds.map((id) => logStore.removeItem(id))]).then(() => refreshLogs());
         if (previewLog && selectedLogIds.includes(previewLog.id)) {
             setPreviewLog(null);
             setResults([]);
@@ -284,10 +296,13 @@ export default function VideoPage() {
         await refreshLogs();
     };
 
-    const refreshLogs = async () => {
+    const refreshLogs = async (previewLatest = false) => {
         const nextLogs = await readStoredLogs();
         setLogs(nextLogs);
         resumePendingLogs(nextLogs);
+        if (previewLatest && nextLogs[0]) {
+            previewGenerationLog(nextLogs[0]);
+        }
         return nextLogs;
     };
 
@@ -319,9 +334,10 @@ export default function VideoPage() {
                         bytes: stored.bytes,
                         mimeType: stored.mimeType,
                     };
+                    const savedToAssets = addVideoToAssets(nextVideo, log.prompt);
                     setResults([{ id: nextVideo.id, status: "success", video: nextVideo }]);
                     await saveLog({ ...log, status: "成功", durationMs: nextVideo.durationMs, video: nextVideo, error: undefined });
-                    message.success("视频已生成");
+                    message.success(savedToAssets ? "视频已生成，已加入我的素材" : "视频已生成");
                     return;
                 }
                 if (state.status === "failed") throw new Error(state.error);
@@ -562,7 +578,7 @@ export default function VideoPage() {
                     onPreviewLog={previewGenerationLog}
                 />
             </Drawer>
-            <Drawer title="参数" placement="bottom" height="82vh" open={settingsOpen} onClose={() => setSettingsOpen(false)}>
+            <Drawer title="参数" placement="bottom" size="82vh" open={settingsOpen} onClose={() => setSettingsOpen(false)}>
                 <div className="grid grid-cols-2 gap-3 pb-4">
                     <GenerationSettings config={effectiveConfig} model={model} updateConfig={updateConfig} openConfigDialog={openConfigDialog} />
                 </div>

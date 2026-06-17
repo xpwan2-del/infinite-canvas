@@ -70,6 +70,7 @@ const logStore = localforage.createInstance({ name: "infinite-canvas", storeName
 export default function ImagePage() {
     const { message } = App.useApp();
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const autoSavedAssetKeysRef = useRef<Set<string>>(new Set());
     const config = useConfigStore((state) => state.config);
     const effectiveConfig = useEffectiveConfig();
     const updateConfig = useConfigStore((state) => state.updateConfig);
@@ -102,7 +103,7 @@ export default function ImagePage() {
     }, [running, startedAt]);
 
     useEffect(() => {
-        void refreshLogs();
+        void refreshLogs(true);
     }, []);
 
     const addReferences = async (files?: FileList | null) => {
@@ -174,6 +175,17 @@ export default function ImagePage() {
                     return { ...image, dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType };
                 }),
             );
+            if (logImages.length) {
+                let successIndex = 0;
+                setResults((value) =>
+                    value.map((item) => {
+                        if (item.status !== "success" || !item.image) return item;
+                        const image = logImages[successIndex++];
+                        return image ? { ...item, image } : item;
+                    }),
+                );
+            }
+            const savedCount = (await Promise.all(logImages.map((image, index) => addImageToAssets(image, index, text)))).filter(Boolean).length;
             saveLog(
                 buildLog({
                     prompt: text,
@@ -187,7 +199,7 @@ export default function ImagePage() {
                     images: logImages,
                 }),
             );
-            successCount ? message.success("图片已生成") : message.error(failed?.reason instanceof Error ? failed.reason.message : "生成失败");
+            successCount ? message.success(savedCount ? "图片已生成，已加入我的素材" : "图片已生成") : message.error(failed?.reason instanceof Error ? failed.reason.message : "生成失败");
         } finally {
             setRunning(false);
         }
@@ -204,7 +216,18 @@ export default function ImagePage() {
     };
 
     const saveResultToAssets = async (image: GeneratedImage, index: number) => {
-        const stored = await uploadImage(image.dataUrl);
+        if (!(await addImageToAssets(image, index, prompt))) {
+            message.info("已在我的素材中");
+            return;
+        }
+        message.success("已加入我的素材");
+    };
+
+    const addImageToAssets = async (image: GeneratedImage, index: number, sourcePrompt: string) => {
+        const stored = image.storageKey ? { url: image.dataUrl, storageKey: image.storageKey, width: image.width, height: image.height, bytes: image.bytes, mimeType: image.mimeType || "image/png" } : await uploadImage(image.dataUrl);
+        const assetKey = stored.storageKey || stored.url;
+        if (!assetKey || autoSavedAssetKeysRef.current.has(assetKey)) return false;
+        autoSavedAssetKeysRef.current.add(assetKey);
         addAsset({
             kind: "image",
             title: `生成结果 ${index + 1}`,
@@ -212,9 +235,9 @@ export default function ImagePage() {
             tags: [],
             source: "生图工作台",
             data: { dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType },
-            metadata: { source: "image-page", prompt },
+            metadata: { source: "image-page", prompt: sourcePrompt },
         });
-        message.success("已加入我的素材");
+        return true;
     };
 
     const insertPickedAsset = async (payload: InsertAssetPayload) => {
@@ -241,7 +264,7 @@ export default function ImagePage() {
 
     const deleteSelectedLogs = () => {
         const imageKeys = logs.filter((log) => selectedLogIds.includes(log.id)).flatMap((log) => log.images.map((image) => image.storageKey).filter((key): key is string => Boolean(key)));
-        void Promise.all([deleteStoredImages(imageKeys), ...selectedLogIds.map((id) => logStore.removeItem(id))]).then(refreshLogs);
+        void Promise.all([deleteStoredImages(imageKeys), ...selectedLogIds.map((id) => logStore.removeItem(id))]).then(() => refreshLogs());
         if (previewLog && selectedLogIds.includes(previewLog.id)) {
             setPreviewLog(null);
             setResults([]);
@@ -251,10 +274,14 @@ export default function ImagePage() {
     };
 
     const saveLog = (log: GenerationLog) => {
-        void logStore.setItem(log.id, serializeLog(log)).then(refreshLogs);
+        void logStore.setItem(log.id, serializeLog(log)).then(() => refreshLogs());
     };
 
-    const refreshLogs = async () => setLogs(await readStoredLogs());
+    const refreshLogs = async (previewLatest = false) => {
+        const nextLogs = await readStoredLogs();
+        setLogs(nextLogs);
+        if (previewLatest && nextLogs[0]) await previewGenerationLog(nextLogs[0]);
+    };
 
     const previewGenerationLog = async (log: GenerationLog) => {
         setPreviewLog(log);

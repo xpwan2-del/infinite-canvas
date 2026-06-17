@@ -116,23 +116,38 @@ async function pollOpenAIVideoTask(config: AiConfig, task: VideoGenerationTask):
         const video = unwrapVideoResponse((await axios.get<ApiVideoResponse>(aiApiUrl(config, `/videos/${task.id}`), { headers: aiHeaders(config), params: config.channelMode === "remote" ? { model: task.model } : undefined })).data);
         if (isCompletedVideoStatus(video.status)) {
             const videoUrl = video.video?.url || video.url;
+            if (config.channelMode === "remote") {
+                try {
+                    const result = await fetchOpenAIVideoContent(config, task);
+                    refreshRemoteUser(config);
+                    return { status: "completed", result };
+                } catch (error) {
+                    if (!videoUrl) throw error;
+                }
+            }
             if (videoUrl) {
                 refreshRemoteUser(config);
                 return { status: "completed", result: { url: videoUrl, mimeType: "video/mp4" } };
             }
-            const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), params: config.channelMode === "remote" ? { model: task.model } : undefined, responseType: "blob" });
-            const mediaUrl = String(content.headers["x-canvas-media-url"] || "");
-            const storageKey = String(content.headers["x-canvas-media-storage-key"] || "");
-            if (mediaUrl) return { status: "completed", result: { url: mediaUrl, storageKey, mimeType: String(content.headers["content-type"] || "video/mp4") } };
-            await assertVideoBlob(content.data);
+            const result = await fetchOpenAIVideoContent(config, task);
             refreshRemoteUser(config);
-            return { status: "completed", result: { blob: content.data } };
+            return { status: "completed", result };
         }
         if (video.status === "failed" || video.status === "cancelled") return { status: "failed", error: video.error?.message || "视频生成失败" };
         return { status: "pending" };
     } catch (error) {
         throw new Error(readAxiosError(error, "视频任务查询失败"));
     }
+}
+
+async function fetchOpenAIVideoContent(config: AiConfig, task: VideoGenerationTask): Promise<VideoGenerationResult> {
+    const content = await axios.get<Blob>(aiApiUrl(config, `/videos/${task.id}/content`), { headers: aiHeaders(config), params: config.channelMode === "remote" ? { model: task.model } : undefined, responseType: "blob" });
+    const mediaUrl = String(content.headers["x-canvas-media-url"] || "");
+    const storageKey = String(content.headers["x-canvas-media-storage-key"] || "");
+    const mimeType = String(content.headers["content-type"] || "video/mp4");
+    if (mediaUrl) return { url: mediaUrl, storageKey, mimeType };
+    await assertVideoBlob(content.data);
+    return { blob: content.data, mimeType };
 }
 
 async function createSeedanceTask(config: AiConfig, model: string, prompt: string, references: ReferenceImage[], videoReferences: ReferenceVideo[], audioReferences: ReferenceAudio[]): Promise<VideoGenerationTask> {
