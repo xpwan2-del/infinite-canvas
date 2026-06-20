@@ -23,11 +23,14 @@ const (
 	referenceImageMaxBytes    = 30 << 20
 	referenceVideoMaxBytes    = 50 << 20
 	referenceAudioMaxBytes    = 15 << 20
+	generatedImageMaxBytes    = referenceImageMaxBytes
 	generatedVideoMaxBytes    = 120 << 20
+	generatedMediaMaxBytes    = generatedVideoMaxBytes
 	referenceImageAllowedText = "jpeg/png/webp/bmp/gif/heic/heif 图片"
 	referenceVideoAllowedText = "mp4/mov 视频"
 	referenceAudioAllowedText = "mp3/wav 音频"
 	referenceMediaAllowedText = referenceImageAllowedText + "、" + referenceVideoAllowedText + "或" + referenceAudioAllowedText
+	generatedMediaAllowedText = referenceImageAllowedText + "或 mp4/mov/webm 视频"
 )
 
 type generatedMediaImportRequest struct {
@@ -74,23 +77,27 @@ func ImportGeneratedMedia(w http.ResponseWriter, r *http.Request) {
 	if user, ok := service.UserFromContext(r.Context()); ok {
 		userID = user.ID
 	}
+	if strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
+		importGeneratedMediaFile(w, r, userID)
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	var payload generatedMediaImportRequest
 	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-		Fail(w, "生成视频保存请求格式不正确")
+		Fail(w, "生成媒体保存请求格式不正确")
 		return
 	}
 	mediaURL := strings.TrimSpace(payload.URL)
 	if !safeRemoteMediaURL(r.Context(), mediaURL) {
 		log.Printf("blocked generated media import: user_id=%s source=%s", userID, safeLogMediaURL(mediaURL))
-		Fail(w, "生成视频地址不安全或不可访问")
+		Fail(w, "生成媒体地址不安全或不可访问")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, mediaURL, nil)
 	if err != nil {
-		Fail(w, "生成视频地址不正确")
+		Fail(w, "生成媒体地址不正确")
 		return
 	}
 	request.Header.Set("User-Agent", "TOP-AI-Canvas/1.0")
@@ -107,31 +114,67 @@ func ImportGeneratedMedia(w http.ResponseWriter, r *http.Request) {
 	response, err := client.Do(request)
 	if err != nil {
 		log.Printf("import generated media failed: user_id=%s source=%s err=%v", userID, safeLogMediaURL(mediaURL), err)
-		Fail(w, "生成视频下载失败")
+		Fail(w, "生成媒体下载失败")
 		return
 	}
 	defer response.Body.Close()
-	if response.StatusCode >= http.StatusBadRequest {
-		Fail(w, "生成视频下载失败")
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		Fail(w, "生成媒体下载失败")
 		return
 	}
-	contentType, ext, ok := normalizeGeneratedVideoType(response.Header.Get("Content-Type"), payload.MimeType, filepath.Ext(request.URL.Path))
+	contentType, ext, ok := normalizeGeneratedMediaType(response.Header.Get("Content-Type"), payload.MimeType, filepath.Ext(request.URL.Path))
 	if !ok {
-		Fail(w, "生成视频格式不支持，请使用 mp4/mov/webm 视频")
+		Fail(w, "生成媒体格式不支持，请使用 "+generatedMediaAllowedText)
 		return
 	}
 	result, err := service.SaveGeneratedMedia(r.Context(), service.ReferenceMediaUploadInput{
-		Reader:   io.LimitReader(response.Body, generatedVideoMaxBytes+1),
+		Reader:   io.LimitReader(response.Body, generatedMediaTypeMaxBytes(contentType)+1),
 		MimeType: contentType,
 		Ext:      ext,
-		MaxBytes: generatedVideoMaxBytes,
+		MaxBytes: generatedMediaTypeMaxBytes(contentType),
 	})
 	if err != nil {
 		log.Printf("save imported generated media failed: user_id=%s source=%s err=%v", userID, safeLogMediaURL(mediaURL), err)
-		Fail(w, generatedMediaSaveMessage(err))
+		Fail(w, generatedMediaSaveMessage(err, contentType))
 		return
 	}
 	log.Printf("imported generated media: user_id=%s source_host=%s bytes=%d object_id=%s", userID, request.URL.Hostname(), result.Bytes, result.ID)
+	OK(w, result)
+}
+
+func importGeneratedMediaFile(w http.ResponseWriter, r *http.Request, userID string) {
+	r.Body = http.MaxBytesReader(w, r.Body, generatedMediaMaxBytes+1)
+	if err := r.ParseMultipartForm(generatedMediaMaxBytes); err != nil {
+		Fail(w, "生成媒体过大或上传格式不正确")
+		return
+	}
+	if r.MultipartForm != nil {
+		defer r.MultipartForm.RemoveAll()
+	}
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		Fail(w, "请上传生成图片或视频")
+		return
+	}
+	defer file.Close()
+
+	contentType, ext, ok := normalizeGeneratedMediaType(header.Header.Get("Content-Type"), filepath.Ext(header.Filename))
+	if !ok {
+		Fail(w, "生成媒体格式不支持，请使用 "+generatedMediaAllowedText)
+		return
+	}
+	result, err := service.SaveGeneratedMedia(r.Context(), service.ReferenceMediaUploadInput{
+		Reader:   file,
+		MimeType: contentType,
+		Ext:      ext,
+		MaxBytes: generatedMediaTypeMaxBytes(contentType),
+	})
+	if err != nil {
+		log.Printf("save uploaded generated media failed: user_id=%s filename=%s err=%v", userID, header.Filename, err)
+		Fail(w, generatedMediaSaveMessage(err, contentType))
+		return
+	}
+	log.Printf("uploaded generated media: user_id=%s bytes=%d object_id=%s", userID, result.Bytes, result.ID)
 	OK(w, result)
 }
 
@@ -139,7 +182,7 @@ func GeneratedMediaURL(w http.ResponseWriter, r *http.Request) {
 	storageKey := strings.TrimSpace(r.URL.Query().Get("key"))
 	mediaURL, err := service.GeneratedMediaURL(r.Context(), storageKey)
 	if err != nil {
-		Fail(w, "生成视频地址已失效或存储未配置")
+		Fail(w, "生成媒体地址已失效或存储未配置")
 		return
 	}
 	OK(w, map[string]string{"url": mediaURL})
@@ -195,25 +238,71 @@ func normalizeReferenceMediaType(contentType string, ext string) (string, string
 	return "", "", false
 }
 
-func normalizeGeneratedVideoType(contentTypes ...string) (string, string, bool) {
+func normalizeGeneratedMediaType(contentTypes ...string) (string, string, bool) {
 	for _, contentType := range contentTypes {
 		contentType = strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
-		switch contentType {
-		case "video/mp4":
-			return contentType, ".mp4", true
-		case "video/quicktime", "video/mov":
-			return "video/quicktime", ".mov", true
-		case "video/webm":
-			return contentType, ".webm", true
-		case ".mp4":
-			return "video/mp4", ".mp4", true
-		case ".mov":
-			return "video/quicktime", ".mov", true
-		case ".webm":
-			return "video/webm", ".webm", true
+		if ext := generatedMediaExtByMimeType(contentType); ext != "" {
+			return contentType, ext, true
+		}
+		if mimeType, ext := generatedMediaMimeTypeByExt(contentType); mimeType != "" {
+			return mimeType, ext, true
 		}
 	}
 	return "", "", false
+}
+
+func generatedMediaExtByMimeType(mimeType string) string {
+	switch strings.ToLower(mimeType) {
+	case "image/jpeg", "image/jpg":
+		return ".jpg"
+	case "image/png":
+		return ".png"
+	case "image/webp":
+		return ".webp"
+	case "image/bmp":
+		return ".bmp"
+	case "image/gif":
+		return ".gif"
+	case "image/heic":
+		return ".heic"
+	case "image/heif":
+		return ".heif"
+	case "video/mp4":
+		return ".mp4"
+	case "video/quicktime", "video/mov":
+		return ".mov"
+	case "video/webm":
+		return ".webm"
+	default:
+		return ""
+	}
+}
+
+func generatedMediaMimeTypeByExt(ext string) (string, string) {
+	switch strings.ToLower(strings.TrimSpace(ext)) {
+	case ".jpg", ".jpeg":
+		return "image/jpeg", ".jpg"
+	case ".png":
+		return "image/png", ".png"
+	case ".webp":
+		return "image/webp", ".webp"
+	case ".bmp":
+		return "image/bmp", ".bmp"
+	case ".gif":
+		return "image/gif", ".gif"
+	case ".heic":
+		return "image/heic", ".heic"
+	case ".heif":
+		return "image/heif", ".heif"
+	case ".mp4":
+		return "video/mp4", ".mp4"
+	case ".mov":
+		return "video/quicktime", ".mov"
+	case ".webm":
+		return "video/webm", ".webm"
+	default:
+		return "", ""
+	}
 }
 
 func referenceMediaExtByMimeType(mimeType string) string {
@@ -300,20 +389,40 @@ func referenceMediaSizeMessage(mimeType string) string {
 	return "参考素材超过大小限制"
 }
 
-func generatedMediaSaveMessage(err error) string {
+func generatedMediaTypeMaxBytes(mimeType string) int64 {
+	if strings.HasPrefix(mimeType, "image/") {
+		return generatedImageMaxBytes
+	}
+	if strings.HasPrefix(mimeType, "video/") {
+		return generatedVideoMaxBytes
+	}
+	return generatedMediaMaxBytes
+}
+
+func generatedMediaSaveMessage(err error, mimeType string) string {
+	label := "生成媒体"
+	if strings.HasPrefix(mimeType, "image/") {
+		label = "生成图片"
+	}
+	if strings.HasPrefix(mimeType, "video/") {
+		label = "生成视频"
+	}
 	if errors.Is(err, service.ErrReferenceMediaEmpty) {
-		return "生成视频为空"
+		return label + "为空"
 	}
 	if errors.Is(err, service.ErrReferenceMediaTooLarge) {
+		if strings.HasPrefix(mimeType, "image/") {
+			return "生成图片超过大小限制，请使用 30MB 以内的图片"
+		}
 		return "生成视频超过大小限制，请联系管理员调整对象存储策略"
 	}
 	if errors.Is(err, service.ErrReferenceMediaStorageConfig) {
-		return "生成视频存储未配置，请检查 R2 服务端环境变量"
+		return label + "存储未配置，请检查 R2 服务端环境变量"
 	}
 	if errors.Is(err, service.ErrReferenceMediaUnsupportedDriver) {
-		return "生成视频存储驱动不支持"
+		return label + "存储驱动不支持"
 	}
-	return "生成视频保存失败"
+	return label + "保存失败"
 }
 
 func safeRemoteMediaURL(ctx context.Context, rawURL string) bool {

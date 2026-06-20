@@ -17,7 +17,7 @@ import { useThemeStore } from "@/stores/use-theme-store";
 import { nanoid } from "nanoid";
 import { formatBytes, formatDuration, getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { requestEdit, requestGeneration } from "@/services/api/image";
-import { deleteStoredImages, resolveImageUrl, uploadImage } from "@/services/image-storage";
+import { deleteStoredImages, resolveImageUrl, uploadGeneratedImage, uploadImage } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
 import type { ReferenceImage } from "@/types/image";
 
@@ -171,7 +171,7 @@ export default function ImagePage() {
         try {
             const logImages = await Promise.all(
                 successImages.map(async (image) => {
-                    const stored = await uploadImage(image.dataUrl);
+                    const stored = await uploadGeneratedImage(image.dataUrl);
                     return { ...image, dataUrl: stored.url, storageKey: stored.storageKey, width: stored.width, height: stored.height, bytes: stored.bytes, mimeType: stored.mimeType };
                 }),
             );
@@ -224,7 +224,7 @@ export default function ImagePage() {
     };
 
     const addImageToAssets = async (image: GeneratedImage, index: number, sourcePrompt: string) => {
-        const stored = image.storageKey ? { url: image.dataUrl, storageKey: image.storageKey, width: image.width, height: image.height, bytes: image.bytes, mimeType: image.mimeType || "image/png" } : await uploadImage(image.dataUrl);
+        const stored = image.storageKey ? { url: image.dataUrl, storageKey: image.storageKey, width: image.width, height: image.height, bytes: image.bytes, mimeType: image.mimeType || "image/png" } : await uploadGeneratedImage(image.dataUrl);
         const assetKey = stored.storageKey || stored.url;
         if (!assetKey || autoSavedAssetKeysRef.current.has(assetKey)) return false;
         autoSavedAssetKeysRef.current.add(assetKey);

@@ -78,6 +78,10 @@ func TestParseGeneratedMediaStorageKey(t *testing.T) {
 	if !ok || key != "generated/video.mp4" {
 		t.Fatalf("parseGeneratedMediaStorageKey = (%q, %v), want generated/video.mp4 true", key, ok)
 	}
+	key, ok = parseGeneratedMediaStorageKey("r2:generated/image.png")
+	if !ok || key != "generated/image.png" {
+		t.Fatalf("parseGeneratedMediaStorageKey = (%q, %v), want generated/image.png true", key, ok)
+	}
 	if _, ok := parseGeneratedMediaStorageKey("r2:temp/reference/video.mp4"); ok {
 		t.Fatal("expected temp reference key to be rejected")
 	}

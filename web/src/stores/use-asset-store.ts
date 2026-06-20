@@ -51,7 +51,7 @@ const assetStorage: PersistStorage<AssetStore> = {
                 if (asset.data.storageKey)
                     return {
                         ...asset,
-                        coverUrl: asset.coverUrl.startsWith("blob:") ? await resolveImageUrl(asset.data.storageKey, asset.coverUrl) : asset.coverUrl,
+                        coverUrl: await resolveImageUrl(asset.data.storageKey, asset.coverUrl),
                         data: { ...asset.data, dataUrl: await resolveImageUrl(asset.data.storageKey, asset.data.dataUrl) },
                     };
                 if (!asset.data.dataUrl.startsWith("data:image/")) return asset;
