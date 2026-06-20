@@ -5,7 +5,6 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
 import { apiGet } from "@/services/api/request";
-import type { AdminPublicSettings } from "@/services/api/admin";
 import { fetchCanvasModels, type CanvasModelList } from "@/services/api/models";
 
 export type AiConfig = {
@@ -44,6 +43,30 @@ export type WebdavSyncConfig = {
     password: string;
     directory: string;
     lastSyncedAt: string;
+};
+
+type PublicModelCost = {
+    model: string;
+    credits: number;
+};
+
+type PublicModelChannelSettings = {
+    availableModels: string[];
+    modelCosts: PublicModelCost[];
+    defaultModel: string;
+    defaultImageModel: string;
+    defaultVideoModel: string;
+    defaultTextModel: string;
+    systemPrompt: string;
+    allowCustomChannel: boolean;
+};
+
+type PublicSettings = {
+    modelChannel: PublicModelChannelSettings;
+    canvas: {
+        disableLocalCredits: boolean;
+        forceTopAIGateway: boolean;
+    };
 };
 
 export const CONFIG_STORE_KEY = "infinite-canvas:ai_config_store";
@@ -90,7 +113,7 @@ export const defaultWebdavSyncConfig: WebdavSyncConfig = {
 type ConfigStore = {
     config: AiConfig;
     webdav: WebdavSyncConfig;
-    publicSettings: AdminPublicSettings | null;
+    publicSettings: PublicSettings | null;
     isPublicSettingsLoading: boolean;
     isModelListLoading: boolean;
     isConfigOpen: boolean;
@@ -105,7 +128,7 @@ type ConfigStore = {
     clearPromptContinue: () => void;
 };
 
-function resolveEffectiveConfig(config: AiConfig, publicSettings: AdminPublicSettings | null) {
+function resolveEffectiveConfig(config: AiConfig, publicSettings: PublicSettings | null) {
     const modelChannel = publicSettings?.modelChannel || null;
     const forceRemote = publicSettings?.canvas?.forceTopAIGateway || !modelChannel?.allowCustomChannel;
     const channelMode = forceRemote ? "remote" : config.channelMode;
@@ -230,7 +253,7 @@ export const useConfigStore = create<ConfigStore>()(
                 if (get().isPublicSettingsLoading) return;
                 set({ isPublicSettingsLoading: true });
                 try {
-                    set({ publicSettings: await apiGet<AdminPublicSettings>("/api/settings") });
+                    set({ publicSettings: await apiGet<PublicSettings>("/api/settings") });
                 } finally {
                     set({ isPublicSettingsLoading: false });
                 }
@@ -239,7 +262,7 @@ export const useConfigStore = create<ConfigStore>()(
                 if (!token || get().isModelListLoading) return;
                 set({ isModelListLoading: true });
                 try {
-                    const publicSettings = get().publicSettings || (await apiGet<AdminPublicSettings>("/api/settings"));
+                    const publicSettings = get().publicSettings || (await apiGet<PublicSettings>("/api/settings"));
                     const modelList = normalizeCanvasModelList(await fetchCanvasModels(token));
                     set({ publicSettings: mergeCanvasModelsIntoPublicSettings(publicSettings, modelList) });
                 } finally {
@@ -314,7 +337,7 @@ function normalizeCanvasModelList(modelList: CanvasModelList): CanvasModelList {
     };
 }
 
-function mergeCanvasModelsIntoPublicSettings(publicSettings: AdminPublicSettings | null, modelList: CanvasModelList): AdminPublicSettings | null {
+function mergeCanvasModelsIntoPublicSettings(publicSettings: PublicSettings | null, modelList: CanvasModelList): PublicSettings | null {
     if (!publicSettings) return publicSettings;
     const modelChannel = publicSettings.modelChannel;
     const defaultTextModel = validDefault(modelChannel.defaultTextModel, modelList.textModels) || preferredModel(modelList.textModels, isTextModelName);

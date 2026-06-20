@@ -21,19 +21,6 @@ export type AuthSession = {
     user: AuthUser;
 };
 
-export type AuthPayload = {
-    username: string;
-    password: string;
-};
-
-export async function login(payload: AuthPayload) {
-    return apiPost<AuthSession>("/api/auth/login", payload);
-}
-
-export async function register(payload: AuthPayload) {
-    return apiPost<AuthSession>("/api/auth/register", payload);
-}
-
 export async function fetchCurrentUser(token?: string) {
     return apiGet<AuthUser>("/api/auth/me", undefined, token);
 }

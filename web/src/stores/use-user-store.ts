@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-import { AUTH_TOKEN_KEY, fetchCurrentUser, getTopAIAuthToken, login, loginWithTopAI, register, type AuthPayload, type AuthUser } from "@/services/api/auth";
+import { AUTH_TOKEN_KEY, fetchCurrentUser, getTopAIAuthToken, loginWithTopAI, type AuthUser } from "@/services/api/auth";
 
 type UserStore = {
     token: string;
@@ -14,8 +14,6 @@ type UserStore = {
     clearSession: () => void;
     hydrateUser: () => Promise<void>;
     hydrateTopAISession: () => Promise<void>;
-    login: (payload: AuthPayload) => Promise<AuthUser>;
-    register: (payload: AuthPayload) => Promise<AuthUser>;
 };
 
 export const useUserStore = create<UserStore>()(
@@ -59,28 +57,6 @@ export const useUserStore = create<UserStore>()(
                     set({ token: session.token, user: session.user, isReady: true, isLoading: false });
                 } catch {
                     set({ user: null, isReady: true, isLoading: false });
-                }
-            },
-            login: async (payload) => {
-                set({ isLoading: true });
-                try {
-                    const session = await login(payload);
-                    set({ token: session.token, user: session.user, isReady: true, isLoading: false });
-                    return session.user;
-                } catch (error) {
-                    set({ isLoading: false });
-                    throw error;
-                }
-            },
-            register: async (payload) => {
-                set({ isLoading: true });
-                try {
-                    const session = await register(payload);
-                    set({ token: session.token, user: session.user, isReady: true, isLoading: false });
-                    return session.user;
-                } catch (error) {
-                    set({ isLoading: false });
-                    throw error;
                 }
             },
         }),

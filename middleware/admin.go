@@ -10,17 +10,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func AdminAuth(c *gin.Context) {
-	user, ok := authUser(c)
-	if !ok || user.Role != model.UserRoleAdmin {
-		handler.Fail(c.Writer, "未登录或权限不足")
-		c.Abort()
-		return
-	}
-	c.Request = c.Request.WithContext(service.WithUser(c.Request.Context(), user))
-	c.Next()
-}
-
 func UserAuth(c *gin.Context) {
 	user, ok := authUser(c)
 	if !ok || user.Role == model.UserRoleGuest {

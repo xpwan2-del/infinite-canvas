@@ -5,7 +5,6 @@ import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { App } from "antd";
 
-import { APP_BASE_PATH } from "@/lib/base-path";
 import { useConfigStore } from "@/stores/use-config-store";
 import { useUserStore } from "@/stores/use-user-store";
 
@@ -19,15 +18,12 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     const publicSettings = useConfigStore((state) => state.publicSettings);
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
-    const routePath = APP_BASE_PATH && pathname.startsWith(APP_BASE_PATH) ? pathname.slice(APP_BASE_PATH.length) || "/" : pathname;
-    const isLoginPage = routePath === "/login" || routePath === "/admin/login";
 
     useEffect(() => {
         void loadPublicSettings();
     }, [loadPublicSettings]);
 
     useEffect(() => {
-        if (isLoginPage) return;
         void hydrateUser().then(async () => {
             if (!useUserStore.getState().user) redirectToTopAILogin();
             else {
@@ -39,7 +35,7 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
                 }
             }
         });
-    }, [hydrateUser, isLoginPage, loadPublicSettings, loadTopAIModels, message]);
+    }, [hydrateUser, loadPublicSettings, loadTopAIModels, message]);
 
     useEffect(() => {
         if (handledConfigParams.current) return;

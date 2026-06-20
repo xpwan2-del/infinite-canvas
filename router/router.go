@@ -16,11 +16,7 @@ func New() *gin.Engine {
 	api.GET("/health", func(c *gin.Context) {
 		c.String(http.StatusOK, "ok")
 	})
-	api.POST("/auth/register", gin.WrapF(handler.Register))
-	api.POST("/auth/login", gin.WrapF(handler.Login))
 	api.POST("/auth/top-ai/session", gin.WrapF(handler.TopAISession))
-	api.GET("/auth/linux-do/authorize", gin.WrapF(handler.LinuxDoAuthorize))
-	api.GET("/auth/linux-do/callback", gin.WrapF(handler.LinuxDoCallback))
 	api.GET("/auth/me", middleware.OptionalAuth, gin.WrapF(handler.CurrentUser))
 	api.GET("/settings", gin.WrapF(handler.Settings))
 	api.GET("/media/references/:id", func(c *gin.Context) {
@@ -47,39 +43,6 @@ func New() *gin.Engine {
 	})
 	api.GET("/prompts", middleware.OptionalAuth, gin.WrapF(handler.Prompts))
 	api.GET("/assets", middleware.OptionalAuth, gin.WrapF(handler.Assets))
-	api.POST("/admin/login", gin.WrapF(handler.AdminLogin))
-
-	admin := api.Group("/admin", middleware.AdminAuth)
-	admin.GET("/users", gin.WrapF(handler.AdminUsers))
-	admin.POST("/users", gin.WrapF(handler.AdminSaveUser))
-	admin.POST("/users/:id/credits", func(c *gin.Context) {
-		handler.AdminAdjustUserCredits(c.Writer, c.Request, c.Param("id"))
-	})
-	admin.DELETE("/users/:id", func(c *gin.Context) {
-		handler.AdminDeleteUser(c.Writer, c.Request, c.Param("id"))
-	})
-	admin.GET("/credit-logs", gin.WrapF(handler.AdminCreditLogs))
-	admin.POST("/credit-logs", gin.WrapF(handler.AdminSaveCreditLog))
-	admin.DELETE("/credit-logs/:id", func(c *gin.Context) {
-		handler.AdminDeleteCreditLog(c.Writer, c.Request, c.Param("id"))
-	})
-	admin.GET("/settings", gin.WrapF(handler.AdminSettings))
-	admin.POST("/settings", gin.WrapF(handler.AdminSaveSettings))
-	admin.POST("/settings/channel-models", gin.WrapF(handler.AdminChannelModels))
-	admin.POST("/settings/channel-test", gin.WrapF(handler.AdminTestChannelModel))
-	admin.GET("/prompt-categories", gin.WrapF(handler.AdminPromptCategories))
-	admin.POST("/prompt-categories/sync", gin.WrapF(handler.AdminSyncPromptCategories))
-	admin.GET("/prompts", gin.WrapF(handler.AdminPrompts))
-	admin.POST("/prompts", gin.WrapF(handler.AdminSavePrompt))
-	admin.POST("/prompts/batch-delete", gin.WrapF(handler.AdminDeletePrompts))
-	admin.DELETE("/prompts/:id", func(c *gin.Context) {
-		handler.AdminDeletePrompt(c.Writer, c.Request, c.Param("id"))
-	})
-	admin.GET("/assets", gin.WrapF(handler.AdminAssets))
-	admin.POST("/assets", gin.WrapF(handler.AdminSaveAsset))
-	admin.DELETE("/assets/:id", func(c *gin.Context) {
-		handler.AdminDeleteAsset(c.Writer, c.Request, c.Param("id"))
-	})
 
 	router.NoRoute(middleware.NotFoundJSON)
 
